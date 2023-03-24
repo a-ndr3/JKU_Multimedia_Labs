@@ -6,6 +6,10 @@ In this project we are implementing a demo Android app, to show the working of
 image to text recognition systems. We will use the [Google ML Kit](https://developers.google.com/ml-kit/vision/text-recognition) for text
 recognition and implement two image filters to improve the recognition quality.
 
+## Tech stack
+- [ ] Android Studio
+- [ ] Kotlin
+- [ ] ML Kit
 
 ## TODOs
 
