@@ -14,3 +14,5 @@ recognition and implement two image filters to improve the recognition quality.
 - [ ] implement blur filter
 - [ ] implement contrast filter
 - [ ] optional: implement live image processing
+- [ ] optional: mark the outline of the paper, to deskew the image
+- [ ] optional: implement brightnes filter using the HSV color model
