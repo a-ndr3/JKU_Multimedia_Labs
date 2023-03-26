@@ -6,7 +6,7 @@
 |---------------|-------------|----------------|
 | k12239568	    | Andrei	    | Blokhin        |
 | k11803216     | Daniel      | Morawetz       |
-|      k11908882         |     Jan        |        Rendel        |
+| k11908882     | Jan         | Rendel         |
 |               |             |                |
 
 ## Overview
