@@ -26,10 +26,12 @@ recognition and implement several techniques to improve the recognition quality.
 
 - [ ] create app
 - [ ] create testing images
-- [ ] implement an averaging filter
-- [ ] implement a binary filter
-- [ ] implement a contrast filter
-- [ ] implement a median filter
+- [+] implement an averaging filter
+- [+] implement a binary filter
+- [+] implement a contrast filter
+- [+] implement a median filter
+- [+] added BlackWhite filter
+- [+] added sharpening(convolution) filter
 - [ ] optional: implement live image processing
 - [ ] optional: mark the outline of the paper, to deskew the image
 - [ ] optional: implement a brightnes filter using the HSV color model
