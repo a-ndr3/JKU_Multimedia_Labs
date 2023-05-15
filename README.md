@@ -32,8 +32,9 @@ recognition and implement several techniques to improve the recognition quality.
 - [+] implement a median filter
 - [+] added BlackWhite filter
 - [+] added sharpening(convolution) filter
+- [+] added edge-sharpening filter
 - [ ] optional: implement live image processing
 - [ ] optional: mark the outline of the paper, to deskew the image
-- [ ] optional: implement a brightnes filter using the HSV color model
+- [+] optional: implement a brightnes filter using the HSV color model
 - [ ] optional: implement adaptive scaling
 - [ ] optional: implement diffusion
