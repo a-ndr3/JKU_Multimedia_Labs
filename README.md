@@ -36,5 +36,6 @@ recognition and implement several techniques to improve the recognition quality.
 - [ ] optional: implement live image processing
 - [ ] optional: mark the outline of the paper, to deskew the image
 - [+] optional: implement a brightnes filter using the HSV color model
+- [+] using HSV get two more filtering options: hue and saturation
 - [ ] optional: implement adaptive scaling
 - [ ] optional: implement diffusion
