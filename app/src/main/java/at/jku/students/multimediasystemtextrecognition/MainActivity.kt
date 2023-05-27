@@ -45,6 +45,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import at.jku.students.multimediasystemtextrecognition.filter.FilterFactory
+import at.jku.students.multimediasystemtextrecognition.filter.FilterTypes
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -118,7 +120,12 @@ class MainActivity : AppCompatActivity() {
         if (image == null) {
             Log.i("DEBUG", "Did not select an image.")
         }
-        // TODO
+        when (item.itemId) {
+            R.id.brightHSV -> {
+                image?.let { FilterFactory().createFilter(FilterTypes.BRIGHTNESS_HSV).apply(it, 1) }
+            }
+            // TODO apply other filters
+        }
         return true
     }
 }
@@ -152,15 +159,17 @@ fun Welcome() {
     Column {
         Text(
             text = "Select an image!",
-            color = Color.Black
+            color = Color.Black,
         )
         ImagePicker(bitmap = bitmap)
         if (bitmap.value != null) {
             Box {
                 Image(
                     bitmap = bitmap.value!!.asImageBitmap(),
-                    contentDescription = ""
+                    contentDescription = "",
+                    // TODO update preview
                 )
+
             }
             Text(
                 text = detectedText,
