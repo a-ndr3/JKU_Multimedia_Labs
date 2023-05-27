@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/bin"
+        android:title="@string/binary"
+        />
+    <item android:id="@+id/con"
+        android:title="@string/contrast" />
+    <item android:id="@+id/sha"
+        android:title="@string/sharpen" />
+    <item android:id="@+id/med"
+        android:title="@string/median" />
+    <item android:id="@+id/avg"
+        android:title="@string/avg" />
+    <item android:id="@+id/bw"
+        android:title="@string/bw" />
+    <item android:id="@+id/edgeC"
+        android:title="@string/edge_coloring" />
+    <item android:id="@+id/satHSV"
+        android:title="@string/saturation_hsv" />
+    <item android:id="@+id/brightHSV"
+        android:title="@string/brightness_hsv" />
+    <item android:id="@+id/hueHSV"
+        android:title="@string/hue_hsv" />
+</menu>
+

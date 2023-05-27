@@ -1,3 +1,13 @@
 <resources>
     <string name="app_name">MultimediasystemTextRecognition</string>
+    <string name="binary">Binary Filter\n</string>
+    <string name="contrast">Contrast Filter</string>
+    <string name="sharpen">Sharpening Filter</string>
+    <string name="median">Median Filter</string>
+    <string name="avg">Average Filter</string>
+    <string name="bw">Black/White Filter</string>
+    <string name="edge_coloring">Edge Coloring Filter</string>
+    <string name="saturation_hsv">Saturation HSV Filter</string>
+    <string name="brightness_hsv">Brightness HSV Filter</string>
+    <string name="hue_hsv">Hue HSV Filter</string>
 </resources>

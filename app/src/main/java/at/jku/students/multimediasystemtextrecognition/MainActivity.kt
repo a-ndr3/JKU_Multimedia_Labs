@@ -10,10 +10,12 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import androidx.activity.ComponentActivity
+import android.view.Menu
+import android.view.MenuItem
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -50,8 +52,9 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
 const val LOG_TAG = "MMS"
+var image: Bitmap? = null
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     var permissionGranted by mutableStateOf(false)
 
@@ -82,7 +85,6 @@ class MainActivity : ComponentActivity() {
 //                    CameraView()
 //                }
             }
-
         }
     }
 
@@ -103,6 +105,21 @@ class MainActivity : ComponentActivity() {
 
             else -> requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
+    }
+
+
+    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
+        val inflater = menuInflater
+        inflater.inflate(R.menu.filter_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (image == null) {
+            Log.i("DEBUG", "Did not select an image.")
+        }
+        // TODO
+        return true
     }
 }
 
@@ -183,6 +200,8 @@ fun ImagePicker(bitmap: MutableState<Bitmap?>) {
                     .createSource(context.contentResolver,it)
                 bitmap.value = ImageDecoder.decodeBitmap(source)
             }
+            // reference the bitmap
+            image = bitmap.value
         }
 
     }
