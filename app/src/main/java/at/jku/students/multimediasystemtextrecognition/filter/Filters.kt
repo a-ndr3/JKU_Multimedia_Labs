@@ -127,6 +127,16 @@ class Filters {
                 arrayOf(1, 2, 1)
             )
 
+            var edgeColorR = 255
+            var edgeColorG = 0
+            var edgeColorB = 0
+
+            if (additionalData.size >= 3) {
+                edgeColorR = (additionalData[0] as? Int) ?: edgeColorR
+                edgeColorG = (additionalData[1] as? Int) ?: edgeColorG
+                edgeColorB = (additionalData[2] as? Int) ?: edgeColorB
+            }
+
             for (y in 1 until height - 1) {
                 for (x in 1 until width - 1) {
                     var gx = 0.0
@@ -142,7 +152,7 @@ class Filters {
                     }
 
                     val magnitude = hypot(gx, gy).roundToInt().coerceIn(0, 255)
-                    val edgeColor = Color.rgb(magnitude, 0, 0)
+                    val edgeColor = Color.rgb(edgeColorR * magnitude / 255, edgeColorG * magnitude / 255, edgeColorB * magnitude / 255)
                     result.setPixel(x, y, edgeColor)
                 }
             }
