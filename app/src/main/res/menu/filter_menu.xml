@@ -2,8 +2,8 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
     <item android:id="@+id/bin"
-        android:title="@string/binary"
-        />
+        android:icon="@drawable/magic"
+        android:title="@string/binary" />
     <item android:id="@+id/con"
         android:title="@string/contrast" />
     <item android:id="@+id/sha"

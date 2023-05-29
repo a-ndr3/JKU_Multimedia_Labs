@@ -1,256 +1,153 @@
 package at.jku.students.multimediasystemtextrecognition
 
-import android.Manifest
-import android.content.Context
-import android.content.pm.PackageManager
+import android.content.Intent
+import android.content.res.Resources.NotFoundException
 import android.graphics.Bitmap
-import android.graphics.ImageDecoder
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.ImageView
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import at.jku.students.multimediasystemtextrecognition.filter.FilterFactory
-import at.jku.students.multimediasystemtextrecognition.filter.FilterTypes
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
+import at.jku.students.multimediasystemtextrecognition.filter.FilterTypes
+import at.jku.students.multimediasystemtextrecognition.filter.Filters.FilterFactory
 
-const val LOG_TAG = "MMS"
-var image: Bitmap? = null
+// each filter gets applied on the original image
+var originalImage: Bitmap? = null
 
 class MainActivity : AppCompatActivity() {
 
-    var permissionGranted by mutableStateOf(false)
-
-    private val requestCameraPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            Log.i(LOG_TAG, "Permission granted")
-            permissionGranted = true
-        } else {
-            Log.i(LOG_TAG, "Permission denied")
-        }
-    }
+    var image : ImageView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.layout)
 
-        // Displaying edge-to-edge
-        //WindowCompat.setDecorFitsSystemWindows(window, false)
+        val imageView = findViewById<ImageView>(R.id.img)
+        image = imageView
 
-
-//        requestCameraPermission()
-        setContent {
-            MaterialTheme {
-                Welcome()
-//                if (permissionGranted) {
-//                    Log.i(LOG_TAG, "Showing camera")
-//                    CameraView()
-//                }
-            }
-        }
-    }
-
-    private fun requestCameraPermission() {
-        when {
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.CAMERA
-            ) == PackageManager.PERMISSION_GRANTED -> {
-                Log.i(LOG_TAG, "Permission previously granted")
-                permissionGranted = true
-            }
-
-            ActivityCompat.shouldShowRequestPermissionRationale(
-                this,
-                Manifest.permission.CAMERA
-            ) -> Log.i(LOG_TAG, "Show camera permissions dialog")
-
-            else -> requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        imageView.setOnClickListener {
+            val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            startActivityForResult(intent, 1)
         }
     }
 
 
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == 1 && resultCode == RESULT_OK && data != null) {
+            val imageUri: Uri? = data.data
+            image!!.setImageURI(imageUri)
+            originalImage = (image!!.drawable as BitmapDrawable).bitmap
+
+            // applying google ml kit
+            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+            val inp = InputImage.fromBitmap((image!!.drawable as BitmapDrawable).bitmap, 0)
+
+            // textView reference to update
+            val textView: TextView = findViewById(R.id.txt)
+
+            recognizer.process(inp)
+                .addOnSuccessListener {
+                    textView.text = it.text
+                }
+                .addOnFailureListener{
+                    textView.text = it.toString()
+                }
+        }
+    }
+
+    // create menu
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         val inflater = menuInflater
         inflater.inflate(R.menu.filter_menu, menu)
         return true
     }
 
+    // applies a selected filter on the original bitmap
+    // TODO user input option to set filter strength
+    // TODO implement generic way to apply a filter. Right now it looks disgusting
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         if (image == null) {
-            Log.i("DEBUG", "Did not select an image.")
-        }
-        when (item.itemId) {
-            R.id.brightHSV -> {
-                image?.let { FilterFactory().createFilter(FilterTypes.BRIGHTNESS_HSV).apply(it, 1) }
+            // TODO alert the user if no image is selected
+            Log.i("INFO", "No image selected")
+        } else {
+            val filter = FilterFactory()
+
+            when (item.itemId) {
+                R.id.brightHSV -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.BRIGHTNESS_HSV).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.bw -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.BLACK_WHITE).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.avg -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.AVERAGING).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.med -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.MEDIAN).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.hueHSV -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.HUE_HSV).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.satHSV -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.SATURATION_HSV).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.con -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.CONTRAST).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.edgeC -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.EDGE_COLORING).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.bin -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.BINARY).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                R.id.sha -> {
+                    val filteredBitmap =
+                        filter.createFilter(FilterTypes.SHARPEN).apply(originalImage!!, 10)
+                    image!!.setImageBitmap(filteredBitmap)
+                }
+
+                else -> Log.i("INFO", "NOT YET IMPLEMENTED")
+
             }
-            // TODO apply other filters
         }
         return true
-    }
-}
-
-@Composable
-fun Welcome() {
-
-    val bitmap = remember {
-        mutableStateOf<Bitmap?>(null)
-    }
-
-    var detectedText by remember { mutableStateOf("") }
-
-    if (bitmap.value != null) {
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-        val inp = InputImage.fromBitmap(bitmap.value!!, 0)
-
-        recognizer.process(inp)
-            .addOnSuccessListener {
-                detectedText = it.text
-            }
-            .addOnFailureListener{
-                Log.e(LOG_TAG, it.toString())
-                detectedText = it.toString()
-            }
-    }
-
-
-
-    Column {
-        Text(
-            text = "Select an image!",
-            color = Color.Black,
-        )
-        ImagePicker(bitmap = bitmap)
-        if (bitmap.value != null) {
-            Box {
-                Image(
-                    bitmap = bitmap.value!!.asImageBitmap(),
-                    contentDescription = "",
-                    // TODO update preview
-                )
-
-            }
-            Text(
-                text = detectedText,
-                color = Color.Black
-            )
-        }
-    }
-}
-
-@Composable
-fun ImagePicker(bitmap: MutableState<Bitmap?>) {
-    var imageUri by remember {
-        mutableStateOf<Uri?>(null)
-    }
-    val context = LocalContext.current
-
-    val launcher = rememberLauncherForActivityResult(contract =
-    ActivityResultContracts.GetContent()) { uri: Uri? ->
-        imageUri = uri
-    }
-    Column() {
-        Button(onClick = {
-            launcher.launch("image/*")
-        }) {
-            Text(text = "Pick image")
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        imageUri?.let {
-            if (Build.VERSION.SDK_INT < 28) {
-                bitmap.value = MediaStore.Images
-                    .Media.getBitmap(context.contentResolver,it)
-
-            } else {
-                val source = ImageDecoder
-                    .createSource(context.contentResolver,it)
-                bitmap.value = ImageDecoder.decodeBitmap(source)
-            }
-            // reference the bitmap
-            image = bitmap.value
-        }
-
-    }
-}
-
-@Composable
-fun CameraView() {
-    val lensFacing = CameraSelector.LENS_FACING_BACK
-    val ctx = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-
-    val preview = Preview.Builder().build()
-    val previewView = remember { PreviewView(ctx) }
-    val cameraSelector = CameraSelector.Builder()
-        .requireLensFacing(lensFacing)
-        .build()
-
-    LaunchedEffect(lensFacing) {
-
-        val cameraProvider = ctx.getCameraProvider()
-        cameraProvider.unbindAll()
-        cameraProvider.bindToLifecycle(
-            lifecycleOwner,
-            cameraSelector,
-            preview
-        )
-
-        preview.setSurfaceProvider(previewView.surfaceProvider)
-    }
-
-    Box(contentAlignment = Alignment.BottomCenter) {
-        AndroidView({ previewView })
-    }
-
-}
-
-private suspend fun Context.getCameraProvider(): ProcessCameraProvider = suspendCoroutine { continuation ->
-    ProcessCameraProvider.getInstance(this).also { cameraProvider ->
-        cameraProvider.addListener({
-            continuation.resume(cameraProvider.get())
-        }, ContextCompat.getMainExecutor(this))
     }
 }

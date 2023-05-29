@@ -1,5 +1,4 @@
-package at.jku.students.multimediasystemtextrecognition.filter
-
+package com.multimedia.imagefilters
 import android.graphics.Bitmap
 
 interface IFilter {
