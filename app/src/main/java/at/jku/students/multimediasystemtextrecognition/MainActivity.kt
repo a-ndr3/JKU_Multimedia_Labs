@@ -9,6 +9,8 @@ import android.provider.MediaStore
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.Button
+import android.widget.Filter
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -27,7 +29,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.layout)
+        setContentView(R.layout.main_layout)
+
+        val button : Button = findViewById(R.id.settings)
+        button.setOnClickListener {
+            // TODO start Filter Activity
+            val intent = Intent(this, FilterActivity::class.java)
+            startActivity(intent)
+        }
 
         val imageView = findViewById<ImageView>(R.id.img)
         image = imageView

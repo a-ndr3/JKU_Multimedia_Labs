@@ -10,4 +10,6 @@
     <string name="saturation_hsv">Saturation HSV Filter</string>
     <string name="brightness_hsv">Brightness HSV Filter</string>
     <string name="hue_hsv">Hue HSV Filter</string>
+    <string name="filter_settings">Filter Settings</string>
+    <string name="apply">Apply</string>
 </resources>
