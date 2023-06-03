@@ -60,10 +60,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import at.jku.students.multimediasystemtextrecognition.filter.FilterFactory
 import at.jku.students.multimediasystemtextrecognition.filter.FilterType
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.util.concurrent.ExecutionException
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
@@ -139,31 +142,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@SuppressLint("MutableCollectionMutableState")
 @Composable
 fun Welcome() {
 
-    val bitmap = remember {
+    val (sourceBitmap, setSourceBitmap) = remember {
         mutableStateOf<Bitmap?>(null)
     }
-
-    var detectedText by remember { mutableStateOf("") }
-
-    if (bitmap.value != null) {
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-        val inp = InputImage.fromBitmap(bitmap.value!!, 0)
-
-        recognizer.process(inp)
-            .addOnSuccessListener {
-                detectedText = it.text
-            }
-            .addOnFailureListener {
-                Log.e(LOG_TAG, it.toString())
-                detectedText = it.toString()
-            }
-    }
-
 
     val appliedFilters = remember {
         mutableStateListOf<AppliedFilter>()
@@ -174,10 +158,14 @@ fun Welcome() {
     var selectedFilterIndex by remember {
         mutableStateOf(-1)
     }
+    var changeCounter by remember {
+        mutableStateOf(0)
+    }
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         FilterPicker(label = "Available:", onFilterSelected = {
             appliedFilters.add(AppliedFilter(FilterType.values()[it], 5))
+            changeCounter++
         })
         FilterPicker(label = "Enabled:", onFilterSelected = {
             Log.i("FilterIndex", it.toString())
@@ -186,26 +174,19 @@ fun Welcome() {
         if (selectedFilterIndex != -1) {
             val f = appliedFilters[selectedFilterIndex]
             SelectedFilterParameters(f.type, f.intensity,
-                onStrengthChange = { appliedFilters[selectedFilterIndex] = f.copy(intensity = it) },
+                onStrengthChange = {
+                    appliedFilters[selectedFilterIndex] = f.copy(intensity = it)
+                    changeCounter++
+                },
                 onRemove = {
                     appliedFilters.removeAt(selectedFilterIndex)
                     selectedFilterIndex = -1
+                    changeCounter++
                 }
             )
         }
-        ImagePicker(bitmap = bitmap)
-        if (bitmap.value != null) {
-            Box {
-                Image(
-                    bitmap = bitmap.value!!.asImageBitmap(),
-                    contentDescription = ""
-                )
-            }
-            Text(
-                text = detectedText,
-                color = Color.Black
-            )
-        }
+        ImagePicker(setSourceBitmap)
+        sourceBitmap?.let { FilteredImageView(it, appliedFilters, changeCounter) }
     }
 }
 
@@ -263,13 +244,13 @@ fun SelectedFilterParameters(
             )
             Slider(value = strength / 10f, onValueChange = {
                 onStrengthChange((it * 10).toInt())
-            }, steps = 10, valueRange = 0.1f..1f)
+            }, steps = 10, valueRange = selected.strengthRange)
         }
     }
 }
 
 @Composable
-fun ImagePicker(bitmap: MutableState<Bitmap?>) {
+fun ImagePicker(setBitmap: (Bitmap) -> Unit) {
     var imageUri by remember {
         mutableStateOf<Uri?>(null)
     }
@@ -281,7 +262,7 @@ fun ImagePicker(bitmap: MutableState<Bitmap?>) {
     ) { uri: Uri? ->
         imageUri = uri
     }
-    Column() {
+    Column {
         Button(onClick = {
             launcher.launch("image/*")
         }) {
@@ -292,16 +273,67 @@ fun ImagePicker(bitmap: MutableState<Bitmap?>) {
 
         imageUri?.let {
             if (Build.VERSION.SDK_INT < 28) {
-                bitmap.value = MediaStore.Images
-                    .Media.getBitmap(context.contentResolver, it)
+                setBitmap(
+                    MediaStore.Images
+                        .Media.getBitmap(context.contentResolver, it)
+                )
 
             } else {
                 val source = ImageDecoder
                     .createSource(context.contentResolver, it)
-                bitmap.value = ImageDecoder.decodeBitmap(source)
+                setBitmap(ImageDecoder.decodeBitmap(source))
             }
         }
 
+    }
+}
+
+@Composable
+fun FilteredImageView(
+    sourceImage: Bitmap,
+    appliedFilters: List<AppliedFilter>,
+    changeCounter: Int
+) {
+    val (filteredBitmap, setFilteredBitmap) = remember {
+        mutableStateOf<Bitmap>(sourceImage.copy(Bitmap.Config.RGBA_F16, true))
+    }
+    val (detectedText, setDetectedText) = remember { mutableStateOf("") }
+
+    LaunchedEffect(appliedFilters, changeCounter) {
+        var fb = sourceImage.copy(Bitmap.Config.RGBA_F16, true)
+
+        Log.d("FilterApply", "applying filters now...")
+        appliedFilters.forEach {
+            val filter = FilterFactory.createFilter(it.type)
+            fb = filter.apply(fb, it.intensity)
+        }
+        Log.d("FilterApply", "finished")
+
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+
+        val inp = InputImage.fromBitmap(fb, 0)
+
+        recognizer.process(inp)
+            .addOnSuccessListener {
+                setDetectedText(it.text)
+            }
+            .addOnFailureListener {
+                Log.e(LOG_TAG, it.toString())
+                setDetectedText(it.toString())
+            }
+
+        setFilteredBitmap(fb)
+    }
+
+    Text(
+        text = detectedText,
+        color = Color.Black
+    )
+    Box {
+        Image(
+            bitmap = filteredBitmap.asImageBitmap(),
+            contentDescription = ""
+        )
     }
 }
 

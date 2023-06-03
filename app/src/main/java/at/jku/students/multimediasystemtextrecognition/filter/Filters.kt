@@ -1,6 +1,7 @@
 package at.jku.students.multimediasystemtextrecognition.filter
 import android.graphics.Bitmap
 import android.graphics.Color
+import androidx.annotation.FloatRange
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BlurOn
 import androidx.compose.material.icons.filled.BorderStyle
@@ -20,32 +21,34 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-enum class FilterType(val displayName: String, val icon: ImageVector) {
-    BINARY("Binary", Icons.Default.JoinInner),
-    CONTRAST("Contrast", Icons.Default.Contrast),
-    SHARPEN("Sharpen", Icons.Default.Deblur),
-    MEDIAN("Median", Icons.Default.Percent),
-    AVERAGING("Averaging", Icons.Default.BlurOn),
-    BLACK_WHITE("Black/White", Icons.Default.FilterBAndW),
-    BRIGHTNESS_HSV("Brightness", Icons.Default.LightMode),
-    EDGE_COLORING("Edge Coloring", Icons.Default.BorderStyle),
-    SATURATION_HSV("Saturation", Icons.Default.HdrStrong),
-    HUE_HSV("Hue", Icons.Default.Opacity),
+enum class FilterType(val displayName: String, val icon: ImageVector, val strengthRange: ClosedFloatingPointRange<Float>) {
+    BINARY("Binary", Icons.Default.JoinInner, 0.0f..25.5f),
+    CONTRAST("Contrast", Icons.Default.Contrast, 0.0f..25.5f),
+    SHARPEN("Sharpen", Icons.Default.Deblur, 0.0f..25.5f),
+    MEDIAN("Median", Icons.Default.Percent, 0.0f..25.5f),
+    AVERAGING("Averaging", Icons.Default.BlurOn, 0.0f..25.5f),
+    BLACK_WHITE("Black/White", Icons.Default.FilterBAndW, 0.0f..25.5f),
+    BRIGHTNESS_HSV("Brightness", Icons.Default.LightMode, 0.0f..25.5f),
+    EDGE_COLORING("Edge Coloring", Icons.Default.BorderStyle, 0.0f..25.5f),
+    SATURATION_HSV("Saturation", Icons.Default.HdrStrong, 0.0f..25.5f),
+    HUE_HSV("Hue", Icons.Default.Opacity, 0.0f..25.5f),
 }
 
 class FilterFactory {
-    fun createFilter(filterType: FilterType): IFilter {
-        return when (filterType) {
-            FilterType.BINARY -> BinaryFilter()
-            FilterType.CONTRAST -> ContrastFilter()
-            FilterType.MEDIAN -> MedianFilter()
-            FilterType.AVERAGING -> AveragingFilter()
-            FilterType.BLACK_WHITE -> BlackWhiteFilter()
-            FilterType.SHARPEN -> SharpenFilter()
-            FilterType.BRIGHTNESS_HSV -> BrightnessHSVFilter()
-            FilterType.EDGE_COLORING -> EdgeColoringFilter()
-            FilterType.SATURATION_HSV -> SaturationFromHSVFilter()
-            FilterType.HUE_HSV -> HueFromHSVFilter()
+    companion object {
+        fun createFilter(filterType: FilterType): IFilter {
+            return when (filterType) {
+                FilterType.BINARY -> BinaryFilter()
+                FilterType.CONTRAST -> ContrastFilter()
+                FilterType.MEDIAN -> MedianFilter()
+                FilterType.AVERAGING -> AveragingFilter()
+                FilterType.BLACK_WHITE -> BlackWhiteFilter()
+                FilterType.SHARPEN -> SharpenFilter()
+                FilterType.BRIGHTNESS_HSV -> BrightnessHSVFilter()
+                FilterType.EDGE_COLORING -> EdgeColoringFilter()
+                FilterType.SATURATION_HSV -> SaturationFromHSVFilter()
+                FilterType.HUE_HSV -> HueFromHSVFilter()
+            }
         }
     }
 }
