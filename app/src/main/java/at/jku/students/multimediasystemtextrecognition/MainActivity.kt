@@ -1,7 +1,6 @@
 package at.jku.students.multimediasystemtextrecognition
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -20,20 +19,24 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,7 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,21 +55,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import at.jku.students.multimediasystemtextrecognition.filter.FilterFactory
 import at.jku.students.multimediasystemtextrecognition.filter.FilterType
-import com.google.android.gms.tasks.Tasks
+import at.jku.students.multimediasystemtextrecognition.filter.toFloatRange
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.util.concurrent.ExecutionException
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
@@ -110,7 +115,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .padding(contentPadding)
                             .padding(18.dp)
-                    ) { Welcome() }
+                    ) { RecognitionUiRoot() }
                 }
 
 //                if (permissionGranted) {
@@ -143,54 +148,72 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Welcome() {
+fun RecognitionUiRoot(viewModel: ImageRecognitionViewModel = viewModel()) {
+    val uiState by viewModel.uiState.collectAsState()
+    RecognitionUi(uiState, viewModel::addFilter, viewModel::selectFilterToConfigure,
+            viewModel::changeStrength, viewModel::removeFilter, viewModel::setSourceImage)
+}
 
-    val (sourceBitmap, setSourceBitmap) = remember {
-        mutableStateOf<Bitmap?>(null)
-    }
-
-    val appliedFilters = remember {
-        mutableStateListOf<AppliedFilter>()
-    }
-    val enabledFilters = remember(appliedFilters.size) {
-        appliedFilters.map { it.type }.toTypedArray()
-    }
-    var selectedFilterIndex by remember {
-        mutableStateOf(-1)
-    }
-    var changeCounter by remember {
-        mutableStateOf(0)
-    }
+@Composable
+fun RecognitionUi(
+    uiState: ImageRecognitionUiState,
+    onFilterAdd: (FilterType) -> Unit,
+    onFilterSelected: (Int) -> Unit,
+    onFilterStrengthChanged: (Int, Int) -> Unit,
+    onFilterRemove: (Int) -> Unit,
+    onImageSelected: (Bitmap) -> Unit
+) {
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         FilterPicker(label = "Available:", onFilterSelected = {
-            appliedFilters.add(AppliedFilter(FilterType.values()[it], 5))
-            changeCounter++
+            onFilterAdd(FilterType.values()[it])
         })
-        FilterPicker(label = "Enabled:", onFilterSelected = {
-            Log.i("FilterIndex", it.toString())
-            selectedFilterIndex = it
-        }, enabledFilters = enabledFilters)
-        if (selectedFilterIndex != -1) {
-            val f = appliedFilters[selectedFilterIndex]
-            SelectedFilterParameters(f.type, f.intensity,
+        FilterPicker(label = "Enabled:", onFilterSelected = onFilterSelected, enabledFilters = uiState.enabledFilters)
+        if (uiState.hasFilterToConfigure) {
+            val f = uiState.filterToConfigure!!
+            SelectedFilterParameters(f.filter,
                 onStrengthChange = {
-                    appliedFilters[selectedFilterIndex] = f.copy(intensity = it)
-                    changeCounter++
+                    onFilterStrengthChanged(f.index, it)
                 },
                 onRemove = {
-                    appliedFilters.removeAt(selectedFilterIndex)
-                    selectedFilterIndex = -1
-                    changeCounter++
+                    onFilterRemove(f.index)
                 }
             )
         }
-        ImagePicker(setSourceBitmap)
-        sourceBitmap?.let { FilteredImageView(it, appliedFilters, changeCounter) }
+        Spacer(modifier = Modifier.height(12.dp))
+        ImagePicker(onImageSelected)
+        Spacer(modifier = Modifier.height(12.dp))
+        if (uiState.hasText) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = uiState.recognizedText,
+                    color = Color.Black
+                )
+                if (uiState.loadingText) {
+                    CircularProgressIndicator()
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        if (uiState.hasImage) {
+            val alpha = if (uiState.loadingImage) { 0.5f  } else { 1f }
+            Box(contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .background(Color.Black)) {
+                Image(
+                    bitmap = uiState.filteredImage!!.asImageBitmap(),
+                    contentDescription = "",
+                    Modifier.alpha(alpha)
+                )
+                if (uiState.loadingImage) {
+                    CircularProgressIndicator()
+                }
+            }
+        }
     }
 }
 
-data class AppliedFilter(val type: FilterType, var intensity: Int)
+
 
 @Composable
 @androidx.compose.ui.tooling.preview.Preview
@@ -199,6 +222,7 @@ fun FilterPicker(
     onFilterSelected: (Int) -> Unit = {},
     enabledFilters: Array<FilterType> = FilterType.values(),
 ) {
+
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label)
 
@@ -218,18 +242,25 @@ fun FilterPicker(
 @Composable
 @androidx.compose.ui.tooling.preview.Preview
 fun SelectedFilterParameters(
-    selected: FilterType = FilterType.BLACK_WHITE,
-    strength: Int = 5,
+    selected: AppliedFilter = AppliedFilter(),
     onStrengthChange: (Int) -> Unit = {},
     onRemove: () -> Unit = {},
 ) {
+    val displayName = selected.type.displayName
+    val strength = selected.strength
+    var sliderValue by remember {
+        mutableStateOf(strength / 10f)
+    }
+    val sliderSteps = selected.type.strengthRange.last - 1
+    val sliderRange = selected.type.strengthRange.toFloatRange()
+
     Column {
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Editing: ${selected.displayName}")
+            Text("Editing: $displayName")
             IconButton(onClick = onRemove) {
                 Icon(Icons.Default.Delete, "remove")
             }
@@ -242,9 +273,10 @@ fun SelectedFilterParameters(
             Text(
                 text = strength.toString(),
             )
-            Slider(value = strength / 10f, onValueChange = {
+            Slider(value = sliderValue, onValueChange = {
                 onStrengthChange((it * 10).toInt())
-            }, steps = 10, valueRange = selected.strengthRange)
+                sliderValue = it
+            }, steps = sliderSteps, valueRange = sliderRange)
         }
     }
 }
@@ -261,6 +293,19 @@ fun ImagePicker(setBitmap: (Bitmap) -> Unit) {
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         imageUri = uri
+
+        uri?.let {
+            if (Build.VERSION.SDK_INT < 28) {
+                setBitmap(
+                    MediaStore.Images
+                        .Media.getBitmap(context.contentResolver, it)
+                )
+            } else {
+                val source = ImageDecoder
+                    .createSource(context.contentResolver, it)
+                setBitmap(ImageDecoder.decodeBitmap(source))
+            }
+        }
     }
     Column {
         Button(onClick = {
@@ -268,74 +313,9 @@ fun ImagePicker(setBitmap: (Bitmap) -> Unit) {
         }) {
             Text(text = "Pick image")
         }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        imageUri?.let {
-            if (Build.VERSION.SDK_INT < 28) {
-                setBitmap(
-                    MediaStore.Images
-                        .Media.getBitmap(context.contentResolver, it)
-                )
-
-            } else {
-                val source = ImageDecoder
-                    .createSource(context.contentResolver, it)
-                setBitmap(ImageDecoder.decodeBitmap(source))
-            }
-        }
-
     }
 }
 
-@Composable
-fun FilteredImageView(
-    sourceImage: Bitmap,
-    appliedFilters: List<AppliedFilter>,
-    changeCounter: Int
-) {
-    val (filteredBitmap, setFilteredBitmap) = remember {
-        mutableStateOf<Bitmap>(sourceImage.copy(Bitmap.Config.RGBA_F16, true))
-    }
-    val (detectedText, setDetectedText) = remember { mutableStateOf("") }
-
-    LaunchedEffect(appliedFilters, changeCounter) {
-        var fb = sourceImage.copy(Bitmap.Config.RGBA_F16, true)
-
-        Log.d("FilterApply", "applying filters now...")
-        appliedFilters.forEach {
-            val filter = FilterFactory.createFilter(it.type)
-            fb = filter.apply(fb, it.intensity)
-        }
-        Log.d("FilterApply", "finished")
-
-        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-
-        val inp = InputImage.fromBitmap(fb, 0)
-
-        recognizer.process(inp)
-            .addOnSuccessListener {
-                setDetectedText(it.text)
-            }
-            .addOnFailureListener {
-                Log.e(LOG_TAG, it.toString())
-                setDetectedText(it.toString())
-            }
-
-        setFilteredBitmap(fb)
-    }
-
-    Text(
-        text = detectedText,
-        color = Color.Black
-    )
-    Box {
-        Image(
-            bitmap = filteredBitmap.asImageBitmap(),
-            contentDescription = ""
-        )
-    }
-}
 
 @Composable
 fun CameraView() {

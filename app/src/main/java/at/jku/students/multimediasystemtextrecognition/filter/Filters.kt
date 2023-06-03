@@ -21,17 +21,27 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-enum class FilterType(val displayName: String, val icon: ImageVector, val strengthRange: ClosedFloatingPointRange<Float>) {
-    BINARY("Binary", Icons.Default.JoinInner, 0.0f..25.5f),
-    CONTRAST("Contrast", Icons.Default.Contrast, 0.0f..25.5f),
-    SHARPEN("Sharpen", Icons.Default.Deblur, 0.0f..25.5f),
-    MEDIAN("Median", Icons.Default.Percent, 0.0f..25.5f),
-    AVERAGING("Averaging", Icons.Default.BlurOn, 0.0f..25.5f),
-    BLACK_WHITE("Black/White", Icons.Default.FilterBAndW, 0.0f..25.5f),
-    BRIGHTNESS_HSV("Brightness", Icons.Default.LightMode, 0.0f..25.5f),
-    EDGE_COLORING("Edge Coloring", Icons.Default.BorderStyle, 0.0f..25.5f),
-    SATURATION_HSV("Saturation", Icons.Default.HdrStrong, 0.0f..25.5f),
-    HUE_HSV("Hue", Icons.Default.Opacity, 0.0f..25.5f),
+enum class FilterType(val displayName: String,
+                      val icon: ImageVector,
+                      val strengthRange: IntRange,
+                      val defaultStrength: Int = 5
+) {
+    BINARY("Binary", Icons.Default.JoinInner, 0..255, 155),
+    CONTRAST("Contrast", Icons.Default.Contrast, 0..255),
+    SHARPEN("Sharpen", Icons.Default.Deblur, 0..255),
+    MEDIAN("Median", Icons.Default.Percent, 0..255),
+    AVERAGING("Averaging", Icons.Default.BlurOn, 0..255),
+    BLACK_WHITE("Black/White", Icons.Default.FilterBAndW, 0..255),
+    BRIGHTNESS_HSV("Brightness", Icons.Default.LightMode, 0..255),
+    EDGE_COLORING("Edge Coloring", Icons.Default.BorderStyle, 0..255),
+    SATURATION_HSV("Saturation", Icons.Default.HdrStrong, 0..255),
+    HUE_HSV("Hue", Icons.Default.Opacity, 0..255),
+}
+
+fun IntRange.toFloatRange(): ClosedFloatingPointRange<Float> {
+    val s = this.first / 10f
+    val e = this.last / 10f
+    return s..e
 }
 
 class FilterFactory {
