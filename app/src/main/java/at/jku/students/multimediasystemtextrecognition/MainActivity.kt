@@ -20,28 +20,19 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.outlined.Contrast
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -65,10 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -76,11 +64,8 @@ import at.jku.students.multimediasystemtextrecognition.filter.FilterType
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.time.format.TextStyle
-import java.util.logging.Filter
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
-import kotlin.math.roundToInt
 
 const val LOG_TAG = "MMS"
 
@@ -118,9 +103,11 @@ class MainActivity : ComponentActivity() {
                             })
                     }
                 ) { contentPadding ->
-                    Box(modifier = Modifier
-                        .padding(contentPadding)
-                        .padding(18.dp)) { Welcome() }
+                    Box(
+                        modifier = Modifier
+                            .padding(contentPadding)
+                            .padding(18.dp)
+                    ) { Welcome() }
                 }
 
 //                if (permissionGranted) {
@@ -178,16 +165,34 @@ fun Welcome() {
     }
 
 
-
-    var selectedFilters = remember {
-        mutableStateListOf<FilterType>()
+    val appliedFilters = remember {
+        mutableStateListOf<AppliedFilter>()
     }
+    val enabledFilters = remember(appliedFilters.size) {
+        appliedFilters.map { it.type }.toTypedArray()
+    }
+    var selectedFilterIndex by remember {
+        mutableStateOf(-1)
+    }
+
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         FilterPicker(label = "Available:", onFilterSelected = {
-            selectedFilters.add(it)
+            appliedFilters.add(AppliedFilter(FilterType.values()[it], 5))
         })
-        FilterPicker(label = "Selected:", onFilterSelected = {}, enabledFilters = selectedFilters.toTypedArray())
-        SelectedFilterParameters()
+        FilterPicker(label = "Enabled:", onFilterSelected = {
+            Log.i("FilterIndex", it.toString())
+            selectedFilterIndex = it
+        }, enabledFilters = enabledFilters)
+        if (selectedFilterIndex != -1) {
+            val f = appliedFilters[selectedFilterIndex]
+            SelectedFilterParameters(f.type, f.intensity,
+                onStrengthChange = { appliedFilters[selectedFilterIndex] = f.copy(intensity = it) },
+                onRemove = {
+                    appliedFilters.removeAt(selectedFilterIndex)
+                    selectedFilterIndex = -1
+                }
+            )
+        }
         ImagePicker(bitmap = bitmap)
         if (bitmap.value != null) {
             Box {
@@ -204,26 +209,25 @@ fun Welcome() {
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+data class AppliedFilter(val type: FilterType, var intensity: Int)
+
 @Composable
 @androidx.compose.ui.tooling.preview.Preview
 fun FilterPicker(
     label: String = "Available:",
-    onFilterSelected: (FilterType) -> Unit = {},
+    onFilterSelected: (Int) -> Unit = {},
     enabledFilters: Array<FilterType> = FilterType.values(),
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(label)
 
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            for (t in FilterType.values()) {
-                if (t in enabledFilters) {
-                    IconButton(onClick = { onFilterSelected(FilterType.BINARY) }) {
-                        Icon(
-                            t.icon,
-                            contentDescription = "${t.displayName} Filter"
-                        )
-                    }
+            enabledFilters.forEachIndexed { i, t ->
+                IconButton(onClick = { onFilterSelected(i) }) {
+                    Icon(
+                        t.icon,
+                        contentDescription = "${t.displayName} Filter"
+                    )
                 }
             }
         }
@@ -234,6 +238,7 @@ fun FilterPicker(
 @androidx.compose.ui.tooling.preview.Preview
 fun SelectedFilterParameters(
     selected: FilterType = FilterType.BLACK_WHITE,
+    strength: Int = 5,
     onStrengthChange: (Int) -> Unit = {},
     onRemove: () -> Unit = {},
 ) {
@@ -243,25 +248,22 @@ fun SelectedFilterParameters(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("Selected: ${selected.displayName}")
+            Text("Editing: ${selected.displayName}")
             IconButton(onClick = onRemove) {
                 Icon(Icons.Default.Delete, "remove")
             }
         }
-        var sliderPosition by remember { mutableStateOf(0.5f) }
-
         Row(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                text = (sliderPosition * 10).toInt().toString(),
+                text = strength.toString(),
             )
-            Slider(value = sliderPosition, onValueChange = {
-                sliderPosition = it
-                onStrengthChange(it.toInt() * 10)
-            }, steps = 11)
+            Slider(value = strength / 10f, onValueChange = {
+                onStrengthChange((it * 10).toInt())
+            }, steps = 10, valueRange = 0.1f..1f)
         }
     }
 }
