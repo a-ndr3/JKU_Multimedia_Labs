@@ -1,6 +1,7 @@
 package at.jku.students.multimediasystemtextrecognition
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -54,6 +55,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,8 +65,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.PreviewParameter
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -72,9 +76,11 @@ import at.jku.students.multimediasystemtextrecognition.filter.FilterType
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.time.format.TextStyle
 import java.util.logging.Filter
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import kotlin.math.roundToInt
 
 const val LOG_TAG = "MMS"
 
@@ -108,11 +114,13 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         TopAppBar(
                             title = {
-                            Text("Multimedia")
-                        })
+                                Text("Multimedia")
+                            })
                     }
                 ) { contentPadding ->
-                    Box(modifier = Modifier.padding(contentPadding).padding(18.dp)) { Welcome() }
+                    Box(modifier = Modifier
+                        .padding(contentPadding)
+                        .padding(18.dp)) { Welcome() }
                 }
 
 //                if (permissionGranted) {
@@ -144,6 +152,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@SuppressLint("MutableCollectionMutableState")
 @Composable
 fun Welcome() {
 
@@ -162,7 +171,7 @@ fun Welcome() {
             .addOnSuccessListener {
                 detectedText = it.text
             }
-            .addOnFailureListener{
+            .addOnFailureListener {
                 Log.e(LOG_TAG, it.toString())
                 detectedText = it.toString()
             }
@@ -170,14 +179,15 @@ fun Welcome() {
 
 
 
+    var selectedFilters = remember {
+        mutableStateListOf<FilterType>()
+    }
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-        FilterPicker(label = "Available:", onFilterSelected = {})
-        FilterPicker(label = "Selected:", onFilterSelected = {}, enabledFilters = arrayOf())
+        FilterPicker(label = "Available:", onFilterSelected = {
+            selectedFilters.add(it)
+        })
+        FilterPicker(label = "Selected:", onFilterSelected = {}, enabledFilters = selectedFilters.toTypedArray())
         SelectedFilterParameters()
-        Text(
-            text = "Select an image!",
-            color = Color.Black
-        )
         ImagePicker(bitmap = bitmap)
         if (bitmap.value != null) {
             Box {
@@ -228,13 +238,31 @@ fun SelectedFilterParameters(
     onRemove: () -> Unit = {},
 ) {
     Column {
-        Row(horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
             Text("Selected: ${selected.displayName}")
             IconButton(onClick = onRemove) {
                 Icon(Icons.Default.Delete, "remove")
             }
         }
-        Slider(value = 0.5F, onValueChange = {v -> onStrengthChange((v * 10).toInt())}, steps = 11)
+        var sliderPosition by remember { mutableStateOf(0.5f) }
+
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = (sliderPosition * 10).toInt().toString(),
+            )
+            Slider(value = sliderPosition, onValueChange = {
+                sliderPosition = it
+                onStrengthChange(it.toInt() * 10)
+            }, steps = 11)
+        }
     }
 }
 
@@ -245,8 +273,10 @@ fun ImagePicker(bitmap: MutableState<Bitmap?>) {
     }
     val context = LocalContext.current
 
-    val launcher = rememberLauncherForActivityResult(contract =
-    ActivityResultContracts.GetContent()) { uri: Uri? ->
+    val launcher = rememberLauncherForActivityResult(
+        contract =
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
         imageUri = uri
     }
     Column() {
@@ -261,11 +291,11 @@ fun ImagePicker(bitmap: MutableState<Bitmap?>) {
         imageUri?.let {
             if (Build.VERSION.SDK_INT < 28) {
                 bitmap.value = MediaStore.Images
-                    .Media.getBitmap(context.contentResolver,it)
+                    .Media.getBitmap(context.contentResolver, it)
 
             } else {
                 val source = ImageDecoder
-                    .createSource(context.contentResolver,it)
+                    .createSource(context.contentResolver, it)
                 bitmap.value = ImageDecoder.decodeBitmap(source)
             }
         }
@@ -304,10 +334,11 @@ fun CameraView() {
 
 }
 
-private suspend fun Context.getCameraProvider(): ProcessCameraProvider = suspendCoroutine { continuation ->
-    ProcessCameraProvider.getInstance(this).also { cameraProvider ->
-        cameraProvider.addListener({
-            continuation.resume(cameraProvider.get())
-        }, ContextCompat.getMainExecutor(this))
+private suspend fun Context.getCameraProvider(): ProcessCameraProvider =
+    suspendCoroutine { continuation ->
+        ProcessCameraProvider.getInstance(this).also { cameraProvider ->
+            cameraProvider.addListener({
+                continuation.resume(cameraProvider.get())
+            }, ContextCompat.getMainExecutor(this))
+        }
     }
-}
