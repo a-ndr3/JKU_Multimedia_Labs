@@ -20,7 +20,7 @@ enum class FilterTypes {
 }
 
 class BrightnessHSVIFilter : IFilter{
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
 
         val width = image.width
         val height = image.height
@@ -46,7 +46,7 @@ class BrightnessHSVIFilter : IFilter{
 }
 
 class SaturationFromHSVIFilter : IFilter{
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
 
         val width = image.width
         val height = image.height
@@ -71,7 +71,7 @@ class SaturationFromHSVIFilter : IFilter{
 }
 
 class HueFromHSVIFilter : IFilter{
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
 
         val width = image.width
         val height = image.height
@@ -104,7 +104,7 @@ class EdgeColoringIFilter : IFilter{
         return 0.2989 * red + 0.5870 * green + 0.1140 * blue
     }
 
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
         val width = image.width
         val height = image.height
         val result = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
@@ -157,8 +157,8 @@ class EdgeColoringIFilter : IFilter{
 
 class BinaryIFilter : IFilter {
 
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
-        require(filterStrength in 0..255)
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
+        require(filterStrength.toInt() in 0..255)
         { throw IllegalArgumentException("Filter strength must be between 0 and 255.")}
 
         val width = image.width
@@ -195,7 +195,7 @@ class AveragingIFilter : IFilter {
         const val BLOCK_SIZE = 100
     }
 
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
         val width = image.width
         val height = image.height
 
@@ -217,8 +217,8 @@ class AveragingIFilter : IFilter {
                                 var sumB = 0
                                 var count = 0
 
-                                for (i in -filterStrength..filterStrength) {
-                                    for (j in -filterStrength..filterStrength) {
+                                for (i in -filterStrength.toInt()..filterStrength.toInt()) {
+                                    for (j in -filterStrength.toInt()..filterStrength.toInt()) {
                                         val posX = x + i
                                         val posY = y + j
 
@@ -257,7 +257,7 @@ class AveragingIFilter : IFilter {
 }
 
 class ContrastIFilter : IFilter {
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
         val width = image.width
         val height = image.height
 
@@ -295,7 +295,7 @@ class MedianIFilter : IFilter {
         const val MAX_COLOR_VALUE = 255
     }
 
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
         val width = image.width
         val height = image.height
 
@@ -320,8 +320,8 @@ class MedianIFilter : IFilter {
                                 val histogramG = IntArray(MAX_COLOR_VALUE + 1)
                                 val histogramB = IntArray(MAX_COLOR_VALUE + 1)
 
-                                for (m in 0 until filterStrength) {
-                                    for (n in 0 until filterStrength) {
+                                for (m in 0 until filterStrength.toInt()) {
+                                    for (n in 0 until filterStrength.toInt()) {
                                         val w = (i - halfAperture) + n
                                         val h = (j - halfAperture) + m
                                         val r: Int
@@ -333,7 +333,7 @@ class MedianIFilter : IFilter {
                                             g = 0
                                             b = 0
                                         } else {
-                                            val color = Color(image.getRGB(w, h))
+                                            val color = Color(image.getRGB(w.toInt(), h.toInt()))
                                             r = color.red
                                             g = color.green
                                             b = color.blue
@@ -361,7 +361,7 @@ class MedianIFilter : IFilter {
         return result
     }
 
-    private fun findMedian(histogram: IntArray, medianIndex: Int): Int {
+    private fun findMedian(histogram: IntArray, medianIndex: Float): Int {
         var count = 0
         for (i in histogram.indices) {
             count += histogram[i]
@@ -375,7 +375,7 @@ class MedianIFilter : IFilter {
 }
 
 class SharpenIFilter : IFilter {
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
         val width = image.width
         val height = image.height
         val result = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
@@ -407,7 +407,7 @@ class SharpenIFilter : IFilter {
 }
 
 class BlackWhite : IFilter {
-    override fun apply(image: BufferedImage, filterStrength: Int, additionalData: List<Any>): BufferedImage {
+    override fun apply(image: BufferedImage, filterStrength: Float, additionalData: List<Any>): BufferedImage {
 
         val width = image.width
         val height = image.height
