@@ -74,6 +74,7 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 const val LOG_TAG = "MMS"
 
@@ -149,28 +150,29 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun RecognitionUiRoot(viewModel: ImageRecognitionViewModel = viewModel()) {
-    val uiState by viewModel.uiState.collectAsState()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     RecognitionUi(uiState, viewModel::addFilter, viewModel::selectFilterToConfigure,
             viewModel::changeStrength, viewModel::removeFilter, viewModel::setSourceImage)
 }
 
 @Composable
 fun RecognitionUi(
-    uiState: ImageRecognitionUiState,
+    uiState: RecognitionUiState,
     onFilterAdd: (FilterType) -> Unit,
     onFilterSelected: (Int) -> Unit,
     onFilterStrengthChanged: (Int, Int) -> Unit,
     onFilterRemove: (Int) -> Unit,
     onImageSelected: (Bitmap) -> Unit
 ) {
-
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         FilterPicker(label = "Available:", onFilterSelected = {
             onFilterAdd(FilterType.values()[it])
         })
-        FilterPicker(label = "Enabled:", onFilterSelected = onFilterSelected, enabledFilters = uiState.enabledFilters)
-        if (uiState.hasFilterToConfigure) {
-            val f = uiState.filterToConfigure!!
+
+
+        FilterPicker(label = "Enabled:", onFilterSelected = onFilterSelected, enabledFilters = uiState.filterSettings.enabledFilters)
+        if (uiState.filterSettings is FilterSettingsUiState.FilterSelected) {
+            val f = uiState.filterSettings.filterToConfigure
             SelectedFilterParameters(f.filter,
                 onStrengthChange = {
                     onFilterStrengthChanged(f.index, it)
@@ -183,32 +185,52 @@ fun RecognitionUi(
         Spacer(modifier = Modifier.height(12.dp))
         ImagePicker(onImageSelected)
         Spacer(modifier = Modifier.height(12.dp))
-        if (uiState.hasText) {
-            Box(contentAlignment = Alignment.Center) {
+        when (uiState.textRecognition) {
+            TextRecognitionUiState.Empty -> Unit
+            is TextRecognitionUiState.ErrorOccurred ->
                 Text(
-                    text = uiState.recognizedText,
+                    text = uiState.textRecognition.message,
+                    color = Color.Red
+                )
+            TextRecognitionUiState.Loading ->
+                CircularProgressIndicator()
+            is TextRecognitionUiState.Recognized ->
+                Text(
+                    text = uiState.textRecognition.text,
                     color = Color.Black
                 )
-                if (uiState.loadingText) {
-                    CircularProgressIndicator()
-                }
-            }
         }
         Spacer(modifier = Modifier.height(12.dp))
-        if (uiState.hasImage) {
-            val alpha = if (uiState.loadingImage) { 0.5f  } else { 1f }
-            Box(contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .background(Color.Black)) {
-                Image(
-                    bitmap = uiState.filteredImage!!.asImageBitmap(),
-                    contentDescription = "",
-                    Modifier.alpha(alpha)
+        when (uiState.imageFilter) {
+            ImageFilterUiState.Empty -> Unit
+            ImageFilterUiState.FilterApplicationFailed ->
+                Text(
+                    text = "There was an error while applying the filters.",
+                    color = Color.Red
                 )
-                if (uiState.loadingImage) {
+            is ImageFilterUiState.FiltersApplied ->
+                Image(
+                    bitmap = uiState.imageFilter.filteredImage.asImageBitmap(),
+                    contentDescription = "",
+                )
+            is ImageFilterUiState.ImageLoaded ->
+                Image(
+                    bitmap = uiState.imageFilter.sourceImage.asImageBitmap(),
+                    contentDescription = "",
+                )
+            is ImageFilterUiState.ImageLoading ->
+                Box(contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .background(Color.Black)) {
+                    uiState.imageFilter.oldImage?.let {
+                        Image(
+                            bitmap = it.asImageBitmap(),
+                            contentDescription = "",
+                            Modifier.alpha(0.5f)
+                        )
+                    }
                     CircularProgressIndicator()
                 }
-            }
         }
     }
 }

@@ -1,6 +1,7 @@
 package at.jku.students.multimediasystemtextrecognition
 
 import android.graphics.Bitmap
+import android.graphics.Point
 import android.util.Log
 import androidx.core.graphics.scale
 import androidx.lifecycle.ViewModel
@@ -16,6 +17,8 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -27,7 +30,12 @@ import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(FlowPreview::class)
 class ImageRecognitionViewModel : ViewModel() {
-    private val _uiState = MutableStateFlow(ImageRecognitionUiState())
+    private val _filterSettingsState =
+        MutableStateFlow<FilterSettingsUiState>(FilterSettingsUiState.FiltersEnabled())
+    private val _imageFilterState =
+        MutableStateFlow<ImageFilterUiState>(ImageFilterUiState.Empty)
+    private val _textRecognitionState = MutableStateFlow<TextRecognitionUiState>(TextRecognitionUiState.Empty)
+    private val _homographyState = MutableStateFlow<HomographyUiState>(HomographyUiState.NotShown)
     private val _requestFilterReload = MutableStateFlow(0)
 
     private val _appliedFilters = mutableListOf<AppliedFilter>()
@@ -45,45 +53,92 @@ class ImageRecognitionViewModel : ViewModel() {
                 }
             }.collect {
                 Log.d("ViewModel", "collect filter requests")
+
+                if (_imageFilterState.value == ImageFilterUiState.Empty) return@collect
+
                 _processingJob?.let {
                     if (it.isActive) {
                         it.cancel()
                         Log.d("ViewModel", "canceled previous execution")
                     }
                 }
-                _uiState.update {
-                    it.copy(
-                        loadingImage = true,
-                        loadingText = true,
-                    )
+                _imageFilterState.update {
+                    when (it) {
+                        is ImageFilterUiState.ImageLoaded ->
+                            ImageFilterUiState.ImageLoading(it.sourceImage)
+                        is ImageFilterUiState.FiltersApplied ->
+                            ImageFilterUiState.ImageLoading(it.filteredImage)
+                        is ImageFilterUiState.ImageLoading ->
+                            ImageFilterUiState.ImageLoading(it.oldImage)
+                        else ->
+                            ImageFilterUiState.ImageLoading()
+                    }
+                }
+                _textRecognitionState.update {
+                    TextRecognitionUiState.Loading
                 }
 
-                _processingJob = viewModelScope.launch {
-                    applyFilters()
-                    runDetection()
+                _processingJob =  viewModelScope.launch prj@ {
+                    val filteredImage = applyFilters()
+                    if (filteredImage == null) {
+                        _imageFilterState.update {
+                            ImageFilterUiState.FilterApplicationFailed
+                        }
+                        return@prj
+                    } else {
+                        _imageFilterState.update {
+                            ImageFilterUiState.FiltersApplied(
+                                filteredImage,
+                            )
+                        }
+                    }
+                    val detectedText = runDetection(filteredImage)
+                    _textRecognitionState.update {
+                        TextRecognitionUiState.Recognized(
+                            detectedText,
+                        )
+                    }
                 }
             }
         }
     }
 
-    val uiState = _uiState.stateIn(
+    val uiState = combine(
+        _imageFilterState,
+        _textRecognitionState,
+        _homographyState,
+        _filterSettingsState
+    ) { imageFilter, recognition, homography, filterSettings ->
+        RecognitionUiState(
+            filterSettings,
+            imageFilter,
+            recognition,
+            homography
+        )
+    }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
-        initialValue = ImageRecognitionUiState()
+        initialValue = RecognitionUiState()
     )
 
     fun setSourceImage(image: Bitmap) {
         Log.d("ViewModel", "set source image (${image.width} x ${image.height})")
         _sourceImage = if (image.width > 1080 || image.height > 1080) {
-            val factor = if(image.width > image.height) { 1080f / image.width} else { 1080f / image.height }
+            val factor = if (image.width > image.height) {
+                1080f / image.width
+            } else {
+                1080f / image.height
+            }
             Log.d("ViewModel", "factor $factor")
             image.scale((image.width * factor).toInt(), (image.height * factor).toInt())
-        } else { image }
+        } else {
+            image
+        }
 
         Log.d("ViewModel", "set source image (${_sourceImage!!.width} x ${_sourceImage!!.height})")
-        _uiState.update {
-            it.copy(
-                filteredImage = _sourceImage,
+        _imageFilterState.update {
+            ImageFilterUiState.ImageLoaded(
+                _sourceImage!!,
             )
         }
         requestFilters()
@@ -94,11 +149,14 @@ class ImageRecognitionViewModel : ViewModel() {
     }
 
     fun addFilter(filter: FilterType) {
-        _appliedFilters.add(AppliedFilter(filter, filter.defaultStrength))
+        val newIndex = _appliedFilters.size
+        val newFilter = AppliedFilter(filter, filter.defaultStrength)
+        _appliedFilters.add(newFilter)
         Log.d("ViewModel", "add filter")
-        _uiState.update {
-            it.copy(
-                appliedFilters = _appliedFilters.toList()
+        _filterSettingsState.update {
+            FilterSettingsUiState.FilterSelected(
+                _appliedFilters.toList(),
+                FilterToConfigure(newIndex, newFilter)
             )
         }
         requestFilters()
@@ -107,9 +165,10 @@ class ImageRecognitionViewModel : ViewModel() {
     fun selectFilterToConfigure(index: Int) {
         assert(index in 0 until _appliedFilters.size)
         Log.d("ViewModel", "select filter to configure idx $index")
-        _uiState.update {
-            it.copy(
-                filterToConfigure = FilterToConfigure(index, _appliedFilters[index])
+        _filterSettingsState.update {
+            FilterSettingsUiState.FilterSelected(
+                _appliedFilters.toList(),
+                FilterToConfigure(index, _appliedFilters[index])
             )
         }
     }
@@ -118,10 +177,18 @@ class ImageRecognitionViewModel : ViewModel() {
         assert(index in 0 until _appliedFilters.size)
         Log.d("ViewModel", "change strength to $strength at idx $index")
         _appliedFilters[index].strength = strength
-        _uiState.update {
-            it.copy(
-                appliedFilters = _appliedFilters.toList()
-            )
+        _filterSettingsState.update {
+            when (it) {
+                is FilterSettingsUiState.FilterSelected ->
+                    it.copy(
+                        appliedFilters = _appliedFilters.toList()
+                    )
+
+                is FilterSettingsUiState.FiltersEnabled ->
+                    it.copy(
+                        appliedFilters = _appliedFilters.toList()
+                    )
+            }
         }
         requestFilters()
     }
@@ -129,19 +196,18 @@ class ImageRecognitionViewModel : ViewModel() {
     fun removeFilter(index: Int) {
         _appliedFilters.removeAt(index)
         Log.d("ViewModel", "remove filter $index")
-        _uiState.update {
-            it.copy(
+        _filterSettingsState.update {
+            FilterSettingsUiState.FiltersEnabled(
                 appliedFilters = _appliedFilters.toList(),
-                filterToConfigure = null
             )
         }
         requestFilters()
     }
 
-    private suspend fun applyFilters() {
+    private suspend fun applyFilters(): Bitmap? {
         Log.d("ViewModel", "apply filters ${_sourceImage == null}")
-        if (_sourceImage == null) return
-        val filteredImage = withContext(Dispatchers.IO) {
+        if (_sourceImage == null) return null
+        return withContext(Dispatchers.IO) {
             var fb = _sourceImage!!.copy(Bitmap.Config.RGBA_F16, true)
 
             Log.d("FilterApply", "applying filters now...")
@@ -154,23 +220,14 @@ class ImageRecognitionViewModel : ViewModel() {
 
             return@withContext fb
         }
-        filteredImage?.let {image ->
-            _uiState.update {
-                it.copy(
-                    filteredImage = image,
-                    loadingImage = false,
-                )
-            }
-        }
     }
 
-    private suspend fun runDetection() {
-        Log.d("ViewModel", "run detection ${_uiState.value.filteredImage == null}")
-        if (_uiState.value.filteredImage == null) return
-        val detectedText = withContext(Dispatchers.IO) {
+    private suspend fun runDetection(image: Bitmap) : String {
+        Log.d("ViewModel", "run detection")
+        return withContext(Dispatchers.IO) {
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
-            val inp = InputImage.fromBitmap(_uiState.value.filteredImage!!, 0)
+            val inp = InputImage.fromBitmap(image, 0)
 
             try {
                 val res = Tasks.await(recognizer.process(inp))
@@ -180,34 +237,70 @@ class ImageRecognitionViewModel : ViewModel() {
                 return@withContext e.toString()
             }
         }
-        _uiState.update {
-            it.copy(
-                recognizedText = detectedText,
-                loadingText = false,
-            )
-        }
     }
 }
 
-data class ImageRecognitionUiState(
-    val filteredImage: Bitmap? = null,
-    val recognizedText: String = "",
-    val appliedFilters: List<AppliedFilter> = listOf(),
-    val filterToConfigure: FilterToConfigure? = null,
-    val loadingImage: Boolean = false,
-    val loadingText: Boolean = false
-) {
-    val hasText: Boolean
-        get() = recognizedText != ""
+data class RecognitionUiState(
+    val filterSettings: FilterSettingsUiState = FilterSettingsUiState.FiltersEnabled(),
+    val imageFilter: ImageFilterUiState = ImageFilterUiState.Empty,
+    val textRecognition: TextRecognitionUiState = TextRecognitionUiState.Empty,
+    val homography: HomographyUiState = HomographyUiState.NotShown,
+)
+
+sealed interface FilterSettingsUiState {
+    val appliedFilters: List<AppliedFilter>
+
+    data class FiltersEnabled(
+        override val appliedFilters: List<AppliedFilter> = listOf(),
+    ) : FilterSettingsUiState
+
+    data class FilterSelected(
+        override val appliedFilters: List<AppliedFilter> = listOf(),
+        val filterToConfigure: FilterToConfigure = FilterToConfigure(),
+    ) : FilterSettingsUiState
 
     val enabledFilters: Array<FilterType>
         get() = appliedFilters.map { it.type }.toTypedArray()
+}
 
-    val hasFilterToConfigure: Boolean
-        get() = filterToConfigure != null
+sealed interface HomographyUiState {
+    object NotShown : HomographyUiState
 
-    val hasImage: Boolean
-        get() = filteredImage != null
+    data class Selecting(
+        val points: List<Point>
+    ) : HomographyUiState
+}
+
+sealed interface ImageFilterUiState {
+    object Empty : ImageFilterUiState
+
+    data class ImageLoading(
+        val oldImage: Bitmap? = null,
+    ) : ImageFilterUiState
+
+    data class ImageLoaded(
+        val sourceImage: Bitmap,
+    ) : ImageFilterUiState
+
+    data class FiltersApplied(
+        val filteredImage: Bitmap,
+    ) : ImageFilterUiState
+
+    object FilterApplicationFailed : ImageFilterUiState
+}
+
+sealed interface TextRecognitionUiState {
+    object Empty : TextRecognitionUiState
+
+    object Loading : TextRecognitionUiState
+
+    data class Recognized (
+        val text: String
+    ) : TextRecognitionUiState
+
+    data class ErrorOccurred (
+        val message: String
+    ) : TextRecognitionUiState
 }
 
 data class FilterToConfigure(
