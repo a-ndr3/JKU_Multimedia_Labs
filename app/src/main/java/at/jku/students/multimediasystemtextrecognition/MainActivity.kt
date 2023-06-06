@@ -10,10 +10,10 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Log
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -26,15 +26,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.JoinInner
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -49,7 +52,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -60,24 +62,23 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import at.jku.students.multimediasystemtextrecognition.filter.FilterFactory
 import at.jku.students.multimediasystemtextrecognition.filter.FilterType
 import at.jku.students.multimediasystemtextrecognition.filter.toFloatRange
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
+import kotlin.reflect.KFunction0
+
 
 const val LOG_TAG = "MMS"
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     var permissionGranted by mutableStateOf(false)
 
@@ -92,15 +93,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Displaying edge-to-edge
-        //WindowCompat.setDecorFitsSystemWindows(window, false)
-
-
-//        requestCameraPermission()
         setContent {
             MaterialTheme {
                 Scaffold(
@@ -117,13 +113,7 @@ class MainActivity : ComponentActivity() {
                             .padding(18.dp)
                     ) { RecognitionUiRoot() }
                 }
-
-//                if (permissionGranted) {
-//                    Log.i(LOG_TAG, "Showing camera")
-//                    CameraView()
-//                }
             }
-
         }
     }
 
@@ -145,13 +135,22 @@ class MainActivity : ComponentActivity() {
             else -> requestCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
     }
+
+
 }
 
 @Composable
 fun RecognitionUiRoot(viewModel: ImageRecognitionViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsState()
-    RecognitionUi(uiState, viewModel::addFilter, viewModel::selectFilterToConfigure,
-            viewModel::changeStrength, viewModel::removeFilter, viewModel::setSourceImage)
+    RecognitionUi(
+        uiState,
+        viewModel::addFilter,
+        viewModel::selectFilterToConfigure,
+        viewModel::changeStrength,
+        viewModel::removeFilter,
+        viewModel::setSourceImage,
+        viewModel::saveImage
+    )
 }
 
 @Composable
@@ -161,14 +160,19 @@ fun RecognitionUi(
     onFilterSelected: (Int) -> Unit,
     onFilterStrengthChanged: (Int, Int) -> Unit,
     onFilterRemove: (Int) -> Unit,
-    onImageSelected: (Bitmap) -> Unit
+    onImageSelected: (Bitmap) -> Unit,
+    onImageSave: KFunction0<Unit>
 ) {
 
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         FilterPicker(label = "Available:", onFilterSelected = {
             onFilterAdd(FilterType.values()[it])
         })
-        FilterPicker(label = "Enabled:", onFilterSelected = onFilterSelected, enabledFilters = uiState.enabledFilters)
+        FilterPicker(
+            label = "Enabled:",
+            onFilterSelected = onFilterSelected,
+            enabledFilters = uiState.enabledFilters
+        )
         if (uiState.hasFilterToConfigure) {
             val f = uiState.filterToConfigure!!
             SelectedFilterParameters(f.filter,
@@ -196,10 +200,16 @@ fun RecognitionUi(
         }
         Spacer(modifier = Modifier.height(12.dp))
         if (uiState.hasImage) {
-            val alpha = if (uiState.loadingImage) { 0.5f  } else { 1f }
-            Box(contentAlignment = Alignment.Center,
+            val alpha = if (uiState.loadingImage) {
+                0.5f
+            } else {
+                1f
+            }
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .background(Color.Black)) {
+                    .background(Color.Black)
+            ) {
                 Image(
                     bitmap = uiState.filteredImage!!.asImageBitmap(),
                     contentDescription = "",
@@ -209,10 +219,16 @@ fun RecognitionUi(
                     CircularProgressIndicator()
                 }
             }
+            Column {
+                Button(onClick = {
+                    uiState.filteredImage?.let { onImageSave() }
+                }) {
+                    Text(text = "Export image")
+                }
+            }
         }
     }
 }
-
 
 
 @Composable
@@ -230,8 +246,15 @@ fun FilterPicker(
             enabledFilters.forEachIndexed { i, t ->
                 IconButton(onClick = { onFilterSelected(i) }) {
                     Icon(
-                        t.icon,
-                        contentDescription = "${t.displayName} Filter"
+                        Icons.Default.RadioButtonUnchecked,
+                        contentDescription = "${t.displayName} Filter",
+                        modifier = Modifier.size(32.dp),
+
+                        )
+                    Text(
+                        t.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }

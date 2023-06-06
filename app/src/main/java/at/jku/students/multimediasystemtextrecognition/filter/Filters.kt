@@ -21,21 +21,38 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+//enum class FilterType(val displayName: String,
+//                      val icon: ImageVector,
+//                      val strengthRange: IntRange,
+//                      val defaultStrength: Int = 5
+//) {
+//    BINARY("Binary", Icons.Default.JoinInner, 0..255, 155),
+//    CONTRAST("Contrast", Icons.Default.Contrast, 0..255),
+//    SHARPEN("Sharpen", Icons.Default.Deblur, 0..255),
+//    MEDIAN("Median", Icons.Default.Percent, 0..255),
+//    AVERAGING("Averaging", Icons.Default.BlurOn, 0..255),
+//    BLACK_WHITE("Black/White", Icons.Default.FilterBAndW, 0..255),
+//    BRIGHTNESS_HSV("Brightness", Icons.Default.LightMode, 0..255),
+//    EDGE_COLORING("Edge Coloring", Icons.Default.BorderStyle, 0..255),
+//    SATURATION_HSV("Saturation", Icons.Default.HdrStrong, 0..255),
+//    HUE_HSV("Hue", Icons.Default.Opacity, 0..255),
+//}
+
 enum class FilterType(val displayName: String,
-                      val icon: ImageVector,
+                      val text: String,
                       val strengthRange: IntRange,
                       val defaultStrength: Int = 5
 ) {
-    BINARY("Binary", Icons.Default.JoinInner, 0..255, 155),
-    CONTRAST("Contrast", Icons.Default.Contrast, 0..255),
-    SHARPEN("Sharpen", Icons.Default.Deblur, 0..255),
-    MEDIAN("Median", Icons.Default.Percent, 0..255),
-    AVERAGING("Averaging", Icons.Default.BlurOn, 0..255),
-    BLACK_WHITE("Black/White", Icons.Default.FilterBAndW, 0..255),
-    BRIGHTNESS_HSV("Brightness", Icons.Default.LightMode, 0..255),
-    EDGE_COLORING("Edge Coloring", Icons.Default.BorderStyle, 0..255),
-    SATURATION_HSV("Saturation", Icons.Default.HdrStrong, 0..255),
-    HUE_HSV("Hue", Icons.Default.Opacity, 0..255),
+    BINARY("Binary", "Bi", 0..255, 155),
+    CONTRAST("Contrast", "Co", 0..255),
+    SHARPEN("Sharpen", "Sh", 0..255),
+    MEDIAN("Median", "Me", 0..255),
+    AVERAGING("Averaging", "Av", 0..255),
+    BLACK_WHITE("Black/White", "BW", 0..255),
+    BRIGHTNESS_HSV("Brightness", "Br", 0..255),
+    EDGE_COLORING("Edge Coloring", "EC", 0..255),
+    SATURATION_HSV("Saturation", "Sa", 0..255),
+    HUE_HSV("Hue", "Hu", 0..255),
 }
 
 fun IntRange.toFloatRange(): ClosedFloatingPointRange<Float> {
