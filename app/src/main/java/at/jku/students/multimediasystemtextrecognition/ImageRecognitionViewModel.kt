@@ -3,6 +3,8 @@ package at.jku.students.multimediasystemtextrecognition
 import android.graphics.Bitmap
 import android.graphics.Point
 import android.util.Log
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
 import androidx.core.graphics.scale
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -309,3 +311,32 @@ data class FilterToConfigure(
 )
 
 data class AppliedFilter(val type: FilterType = FilterType.BLACK_WHITE, var strength: Int = 50)
+
+data class HomographySettings(
+    val topLeft: Offset = Offset(0f, 0f),
+    val topRight: Offset = Offset(100f, 0f),
+    val bottomLeft: Offset= Offset(0f, 100f),
+    val bottomRight: Offset= Offset(100f, 100f),
+) {
+    companion object {
+        fun fromSize(width: Float, height: Float) : HomographySettings {
+            return HomographySettings(
+                Offset(0f, 0f),
+                Offset(width, 0f),
+                Offset(0f, height),
+                Offset(width, height),
+            )
+        }
+    }
+
+    val path: Path
+        get() {
+            val path = Path()
+            path.moveTo(topLeft.x, topLeft.y)
+            path.lineTo(topRight.x, topRight.y)
+            path.lineTo(bottomRight.x, bottomRight.y)
+            path.lineTo(bottomLeft.x, bottomLeft.y)
+            path.close()
+            return path
+        }
+}

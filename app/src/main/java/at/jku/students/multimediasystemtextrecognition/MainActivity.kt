@@ -18,6 +18,7 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -44,6 +46,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -56,9 +59,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.inset
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -164,78 +178,160 @@ fun RecognitionUi(
     onFilterRemove: (Int) -> Unit,
     onImageSelected: (Bitmap) -> Unit
 ) {
+    var homographyActive by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-        FilterPicker(label = "Available:", onFilterSelected = {
-            onFilterAdd(FilterType.values()[it])
-        })
-
-
-        FilterPicker(label = "Enabled:", onFilterSelected = onFilterSelected, enabledFilters = uiState.filterSettings.enabledFilters)
-        if (uiState.filterSettings is FilterSettingsUiState.FilterSelected) {
-            val f = uiState.filterSettings.filterToConfigure
-            SelectedFilterParameters(f.filter,
-                onStrengthChange = {
-                    onFilterStrengthChanged(f.index, it)
-                },
-                onRemove = {
-                    onFilterRemove(f.index)
-                }
+        if (!homographyActive) {
+            FilterPicker(label = "Available:", onFilterSelected = {
+                onFilterAdd(FilterType.values()[it])
+            })
+            FilterPicker(
+                label = "Enabled:",
+                onFilterSelected = onFilterSelected,
+                enabledFilters = uiState.filterSettings.enabledFilters
             )
+            FilterSettings(uiState.filterSettings, onFilterStrengthChanged, onFilterRemove)
+            Spacer(modifier = Modifier.height(12.dp))
+            if (uiState.imageFilter is ImageFilterUiState.FiltersApplied ||
+                uiState.imageFilter is ImageFilterUiState.ImageLoaded) {
+                ButtonRow(onImageSelected) { homographyActive = true }
+            } else {
+                ButtonRow(onImageSelected, null)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            TextRecognitionResult(uiState.textRecognition)
+            Spacer(modifier = Modifier.height(12.dp))
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        ImagePicker(onImageSelected)
-        Spacer(modifier = Modifier.height(12.dp))
-        when (uiState.textRecognition) {
-            TextRecognitionUiState.Empty -> Unit
-            is TextRecognitionUiState.ErrorOccurred ->
-                Text(
-                    text = uiState.textRecognition.message,
-                    color = Color.Red
-                )
-            TextRecognitionUiState.Loading ->
-                CircularProgressIndicator()
-            is TextRecognitionUiState.Recognized ->
-                Text(
-                    text = uiState.textRecognition.text,
-                    color = Color.Black
-                )
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        when (uiState.imageFilter) {
-            ImageFilterUiState.Empty -> Unit
-            ImageFilterUiState.FilterApplicationFailed ->
-                Text(
-                    text = "There was an error while applying the filters.",
-                    color = Color.Red
-                )
-            is ImageFilterUiState.FiltersApplied ->
-                Image(
-                    bitmap = uiState.imageFilter.filteredImage.asImageBitmap(),
-                    contentDescription = "",
-                )
-            is ImageFilterUiState.ImageLoaded ->
-                Image(
-                    bitmap = uiState.imageFilter.sourceImage.asImageBitmap(),
-                    contentDescription = "",
-                )
-            is ImageFilterUiState.ImageLoading ->
-                Box(contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .background(Color.Black)) {
-                    uiState.imageFilter.oldImage?.let {
-                        Image(
-                            bitmap = it.asImageBitmap(),
-                            contentDescription = "",
-                            Modifier.alpha(0.5f)
-                        )
-                    }
-                    CircularProgressIndicator()
-                }
-        }
+        ImagePreview(uiState.imageFilter, homographyActive) { homographyActive = false }
     }
 }
 
+@Composable
+fun FilterSettings(
+    uiState: FilterSettingsUiState,
+    onFilterStrengthChanged: (Int, Int) -> Unit,
+    onFilterRemove: (Int) -> Unit,
+) {
+    if (uiState !is FilterSettingsUiState.FilterSelected) return
 
+    val f = uiState.filterToConfigure.filter
+    val idx = uiState.filterToConfigure.index
+    SelectedFilterParameters(f,
+        onStrengthChange = {
+            onFilterStrengthChanged(idx, it)
+        },
+        onRemove = {
+            onFilterRemove(idx)
+        }
+    )
+}
+
+@Composable
+fun TextRecognitionResult(
+    uiState: TextRecognitionUiState
+) {
+    when (uiState) {
+        TextRecognitionUiState.Empty -> Unit
+        is TextRecognitionUiState.ErrorOccurred ->
+            Text(
+                text = uiState.message,
+                color = Color.Red
+            )
+        TextRecognitionUiState.Loading ->
+            CircularProgressIndicator()
+        is TextRecognitionUiState.Recognized ->
+            Text(
+                text = uiState.text,
+                color = Color.Black
+            )
+    }
+}
+
+@Composable
+fun ImagePreview(
+    uiState: ImageFilterUiState,
+    homographyActive: Boolean,
+    onHomographyCompleted: (HomographySettings?) -> Unit,
+) {
+
+
+    val defaultImageBox = @Composable { image: Bitmap ->
+        val width = with(LocalDensity.current) { image.width.toDp() }
+        val height = with(LocalDensity.current) { image.height.toDp() }
+        val radius = 18f
+        val scale = 598.dp / height
+
+        val homographySettings by remember {
+            mutableStateOf(HomographySettings.fromSize(image.width * scale, image.height * scale))
+        }
+
+        Box(contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(600.dp)) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(width * scale)
+            ) {
+                scale(scale, Offset.Zero) {
+                    inset(0f, radius) {
+                        drawImage(image.asImageBitmap())
+                    }
+                }
+
+                if (!homographyActive) return@Canvas
+                translate (0f, radius) {
+                    drawCircle(Color.Red, radius, homographySettings.topLeft)
+                    drawCircle(Color.Red, radius, homographySettings.topRight)
+                    drawCircle(Color.Red, radius, homographySettings.bottomLeft)
+                    drawCircle(Color.Red, radius, homographySettings.bottomRight)
+                    drawPath(homographySettings.path, Color.Red, style = Stroke(3.0f))
+                }
+
+            }
+        }
+    }
+
+    when (uiState) {
+        ImageFilterUiState.Empty -> Unit
+        ImageFilterUiState.FilterApplicationFailed ->
+            Text(
+                text = "There was an error while applying the filters.",
+                color = Color.Red
+            )
+        is ImageFilterUiState.FiltersApplied ->
+            defaultImageBox(uiState.filteredImage)
+        is ImageFilterUiState.ImageLoaded ->
+            defaultImageBox(uiState.sourceImage)
+        is ImageFilterUiState.ImageLoading ->
+            Box(contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .background(Color.Black)) {
+                uiState.oldImage?.let {
+                    Image(
+                        bitmap = it.asImageBitmap(),
+                        contentDescription = "",
+                        Modifier.alpha(0.5f)
+                    )
+                }
+                CircularProgressIndicator()
+            }
+    }
+
+    if (homographyActive) {
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+            Button(onClick = { onHomographyCompleted(null) }, ) {
+                Text("Apply")
+            }
+            Spacer(Modifier.width(12.dp))
+            TextButton(onClick = { onHomographyCompleted(null) }, ) {
+                Text("Cancel")
+            }
+        }
+    }
+}
 
 @Composable
 @androidx.compose.ui.tooling.preview.Preview
@@ -304,7 +400,10 @@ fun SelectedFilterParameters(
 }
 
 @Composable
-fun ImagePicker(setBitmap: (Bitmap) -> Unit) {
+fun ButtonRow(
+    setBitmap: (Bitmap) -> Unit,
+    enableHomographyPicker: (() -> Unit)?,
+) {
     var imageUri by remember {
         mutableStateOf<Uri?>(null)
     }
@@ -329,12 +428,17 @@ fun ImagePicker(setBitmap: (Bitmap) -> Unit) {
             }
         }
     }
-    Column {
-        Button(onClick = {
-            launcher.launch("image/*")
-        }) {
+    Row {
+        Button(onClick = { launcher.launch("image/*") }) {
             Text(text = "Pick image")
         }
+        Spacer(modifier = Modifier.width(8.dp))
+        if (enableHomographyPicker != null) {
+            Button(onClick = enableHomographyPicker) {
+                Text(text = "Set edge points")
+            }
+        }
+
     }
 }
 
