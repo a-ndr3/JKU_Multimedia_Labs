@@ -21,6 +21,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +71,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -166,7 +168,9 @@ class MainActivity : ComponentActivity() {
 fun RecognitionUiRoot(viewModel: ImageRecognitionViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     RecognitionUi(uiState, viewModel::addFilter, viewModel::selectFilterToConfigure,
-            viewModel::changeStrength, viewModel::removeFilter, viewModel::setSourceImage)
+            viewModel::changeStrength, viewModel::removeFilter, viewModel::setSourceImage,
+        viewModel::setHomographySelection, viewModel::applyHomography
+    )
 }
 
 @Composable
@@ -176,12 +180,12 @@ fun RecognitionUi(
     onFilterSelected: (Int) -> Unit,
     onFilterStrengthChanged: (Int, Int) -> Unit,
     onFilterRemove: (Int) -> Unit,
-    onImageSelected: (Bitmap) -> Unit
+    onImageSelected: (Bitmap) -> Unit,
+    setHomographySelection: (Boolean) -> Unit,
+    applyHomography: (HomographySettings) -> Unit,
 ) {
-    var homographyActive by remember { mutableStateOf(false) }
-
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-        if (!homographyActive) {
+        if (uiState.homography !is HomographyUiState.Selecting) {
             FilterPicker(label = "Available:", onFilterSelected = {
                 onFilterAdd(FilterType.values()[it])
             })
@@ -194,7 +198,7 @@ fun RecognitionUi(
             Spacer(modifier = Modifier.height(12.dp))
             if (uiState.imageFilter is ImageFilterUiState.FiltersApplied ||
                 uiState.imageFilter is ImageFilterUiState.ImageLoaded) {
-                ButtonRow(onImageSelected) { homographyActive = true }
+                ButtonRow(onImageSelected) { setHomographySelection(true) }
             } else {
                 ButtonRow(onImageSelected, null)
             }
@@ -202,7 +206,13 @@ fun RecognitionUi(
             TextRecognitionResult(uiState.textRecognition)
             Spacer(modifier = Modifier.height(12.dp))
         }
-        ImagePreview(uiState.imageFilter, homographyActive) { homographyActive = false }
+        ImagePreview(uiState.imageFilter, uiState.homography) { settings ->
+            if (settings == null) {
+                setHomographySelection(false)
+            } else {
+                applyHomography(settings)
+            }
+        }
     }
 }
 
@@ -250,10 +260,16 @@ fun TextRecognitionResult(
 @Composable
 fun ImagePreview(
     uiState: ImageFilterUiState,
-    homographyActive: Boolean,
+    homographyUiState: HomographyUiState,
     onHomographyCompleted: (HomographySettings?) -> Unit,
 ) {
+    var homographySettings by remember {
+        mutableStateOf<HomographySettings?>(null)
+    }
 
+    if (homographyUiState is HomographyUiState.Selected) {
+        homographySettings = homographyUiState.settings
+    }
 
     val defaultImageBox = @Composable { image: Bitmap ->
         val width = with(LocalDensity.current) { image.width.toDp() }
@@ -261,9 +277,7 @@ fun ImagePreview(
         val radius = 18f
         val scale = 598.dp / height
 
-        val homographySettings by remember {
-            mutableStateOf(HomographySettings.fromSize(image.width * scale, image.height * scale))
-        }
+        homographySettings = HomographySettings.fromSize(image.width.toFloat(), image.height.toFloat(), scale)
 
         Box(contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -273,6 +287,12 @@ fun ImagePreview(
                 modifier = Modifier
                     .fillMaxHeight()
                     .width(width * scale)
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, _ ->
+                            change.consume()
+                            homographySettings = homographySettings!!.updateNearest(change.position)
+                        }
+                    }
             ) {
                 scale(scale, Offset.Zero) {
                     inset(0f, radius) {
@@ -280,13 +300,13 @@ fun ImagePreview(
                     }
                 }
 
-                if (!homographyActive) return@Canvas
+                if (homographyUiState !is HomographyUiState.Selecting) return@Canvas
                 translate (0f, radius) {
-                    drawCircle(Color.Red, radius, homographySettings.topLeft)
-                    drawCircle(Color.Red, radius, homographySettings.topRight)
-                    drawCircle(Color.Red, radius, homographySettings.bottomLeft)
-                    drawCircle(Color.Red, radius, homographySettings.bottomRight)
-                    drawPath(homographySettings.path, Color.Red, style = Stroke(3.0f))
+                    drawCircle(Color.Red, radius, homographySettings!!.topLeft)
+                    drawCircle(Color.Red, radius, homographySettings!!.topRight)
+                    drawCircle(Color.Red, radius, homographySettings!!.bottomLeft)
+                    drawCircle(Color.Red, radius, homographySettings!!.bottomRight)
+                    drawPath(homographySettings!!.path, Color.Red, style = Stroke(3.0f))
                 }
 
             }
@@ -319,10 +339,10 @@ fun ImagePreview(
             }
     }
 
-    if (homographyActive) {
+    if (homographyUiState is HomographyUiState.Selecting) {
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-            Button(onClick = { onHomographyCompleted(null) }, ) {
+            Button(onClick = { onHomographyCompleted(homographySettings) }, ) {
                 Text("Apply")
             }
             Spacer(Modifier.width(12.dp))

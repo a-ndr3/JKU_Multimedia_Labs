@@ -1,7 +1,7 @@
 package at.jku.students.multimediasystemtextrecognition
 
 import android.graphics.Bitmap
-import android.graphics.Point
+import android.graphics.Matrix
 import android.util.Log
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
@@ -19,7 +19,6 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
@@ -27,7 +26,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.lang.Float.max
+import java.lang.Float.min
 import java.util.concurrent.ExecutionException
+import kotlin.math.hypot
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(FlowPreview::class)
@@ -42,6 +44,7 @@ class ImageRecognitionViewModel : ViewModel() {
 
     private val _appliedFilters = mutableListOf<AppliedFilter>()
     private var _sourceImage: Bitmap? = null
+    private var _homographySettings: HomographySettings? = null
 
     private var _processingJob: Job? = null
 
@@ -90,6 +93,7 @@ class ImageRecognitionViewModel : ViewModel() {
                     } else {
                         _imageFilterState.update {
                             ImageFilterUiState.FiltersApplied(
+                                _sourceImage!!,
                                 filteredImage,
                             )
                         }
@@ -143,10 +147,10 @@ class ImageRecognitionViewModel : ViewModel() {
                 _sourceImage!!,
             )
         }
-        requestFilters()
+        reapply()
     }
 
-    private fun requestFilters() {
+    private fun reapply() {
         _requestFilterReload.update { it + 1 }
     }
 
@@ -161,7 +165,7 @@ class ImageRecognitionViewModel : ViewModel() {
                 FilterToConfigure(newIndex, newFilter)
             )
         }
-        requestFilters()
+        reapply()
     }
 
     fun selectFilterToConfigure(index: Int) {
@@ -192,7 +196,7 @@ class ImageRecognitionViewModel : ViewModel() {
                     )
             }
         }
-        requestFilters()
+        reapply()
     }
 
     fun removeFilter(index: Int) {
@@ -203,7 +207,7 @@ class ImageRecognitionViewModel : ViewModel() {
                 appliedFilters = _appliedFilters.toList(),
             )
         }
-        requestFilters()
+        reapply()
     }
 
     private suspend fun applyFilters(): Bitmap? {
@@ -211,6 +215,11 @@ class ImageRecognitionViewModel : ViewModel() {
         if (_sourceImage == null) return null
         return withContext(Dispatchers.IO) {
             var fb = _sourceImage!!.copy(Bitmap.Config.RGBA_F16, true)
+
+            _homographySettings?.let {
+                Log.d("FilterApply", "applying homography now... ${it.topLeft}")
+                fb = it.applyToBitmap(fb)
+            }
 
             Log.d("FilterApply", "applying filters now...")
             _appliedFilters.forEach {
@@ -240,6 +249,24 @@ class ImageRecognitionViewModel : ViewModel() {
             }
         }
     }
+
+    fun setHomographySelection(active: Boolean = true) {
+        _homographyState.update {
+            if (active) {
+                HomographyUiState.Selecting
+            } else {
+                HomographyUiState.NotShown
+            }
+        }
+    }
+
+    fun applyHomography(settings: HomographySettings) {
+        _homographySettings = settings
+        _homographyState.update {
+            HomographyUiState.Selected(settings)
+        }
+        reapply()
+    }
 }
 
 data class RecognitionUiState(
@@ -268,8 +295,10 @@ sealed interface FilterSettingsUiState {
 sealed interface HomographyUiState {
     object NotShown : HomographyUiState
 
-    data class Selecting(
-        val points: List<Point>
+    object Selecting : HomographyUiState
+
+    data class Selected(
+        val settings: HomographySettings
     ) : HomographyUiState
 }
 
@@ -285,6 +314,7 @@ sealed interface ImageFilterUiState {
     ) : ImageFilterUiState
 
     data class FiltersApplied(
+        val sourceImage: Bitmap,
         val filteredImage: Bitmap,
     ) : ImageFilterUiState
 
@@ -317,16 +347,80 @@ data class HomographySettings(
     val topRight: Offset = Offset(100f, 0f),
     val bottomLeft: Offset= Offset(0f, 100f),
     val bottomRight: Offset= Offset(100f, 100f),
+    val onDisplayWidth: Float = 100f,
+    val onDisplayHeight: Float = 100f,
+    val scaleToImage: Float = 1f
 ) {
     companion object {
-        fun fromSize(width: Float, height: Float) : HomographySettings {
+        fun fromSize(imageWidth: Float, imageHeight: Float, scale: Float) : HomographySettings {
             return HomographySettings(
                 Offset(0f, 0f),
-                Offset(width, 0f),
-                Offset(0f, height),
-                Offset(width, height),
+                Offset(imageWidth * scale, 0f),
+                Offset(0f, imageHeight * scale),
+                Offset(imageWidth * scale, imageHeight * scale),
+                imageWidth,
+                imageHeight,
+                scale,
             )
         }
+    }
+
+    fun applyToBitmap(image: Bitmap) : Bitmap {
+        val m = Matrix()
+        val originalPoints = arrayOf(
+            0f, 0f, // top left x, y
+            image.width.toFloat(), 0f, // top right x, y
+            0f, image.height.toFloat(), // left bottom x, y
+            image.width.toFloat(), image.height.toFloat() // right bottom x, y
+        ).toFloatArray()
+        val mappedPoints = arrayOf(
+            topLeft.x, -topLeft.y,
+            topRight.x, topRight.y,
+            bottomLeft.x, bottomLeft.y,
+            bottomRight.x, bottomRight.y,
+        ).toFloatArray()
+
+        m.setPolyToPoly(originalPoints, 0, mappedPoints, 0, 4)
+        Log.d("HomographySettings", "applying $m")
+
+        val newHeight = (max(bottomLeft.y - topLeft.y, bottomRight.y - topRight.y) / scaleToImage).toInt()
+        val newWidth = (max(bottomRight.x - bottomLeft.x, topRight.x - topLeft.x) / scaleToImage).toInt()
+        val morphed = Bitmap.createBitmap(image, 0, 0, image.width, image.height, m, true)
+        return Bitmap.createBitmap(morphed, (topLeft.x / scaleToImage).toInt(), (topLeft.y / scaleToImage).toInt(), image.width, image.height)
+
+    }
+
+    fun updateNearest(position: Offset) : HomographySettings {
+        val dragDistance = max(onDisplayWidth / 12f, onDisplayHeight / 12f)
+
+        return if (topLeft.near(position, dragDistance)) {
+            copy(topLeft = clamp(position))
+        } else if (topRight.near(position, dragDistance)) {
+            copy(topRight = clamp(position))
+        } else if (bottomLeft.near(position, dragDistance)) {
+            copy(bottomLeft = clamp(position))
+        } else if (bottomRight.near(position, dragDistance)) {
+            copy(bottomRight = clamp(position))
+        } else {
+            this
+        }
+    }
+
+    private fun clamp(position: Offset) : Offset {
+        var clamped = position
+        if (position.x < 0) {
+            clamped = clamped.copy(x = 0f)
+        }
+        if (position.y < 0) {
+            clamped = clamped.copy(y = 0f)
+        }
+        if (position.x > onDisplayWidth) {
+            clamped = clamped.copy(x = onDisplayWidth)
+        }
+        if (position.y > onDisplayHeight) {
+            clamped = clamped.copy(y = onDisplayHeight)
+        }
+        return clamped
     }
 
     val path: Path
@@ -339,4 +433,8 @@ data class HomographySettings(
             path.close()
             return path
         }
+}
+
+fun Offset.near(other: Offset, dragDistance: Float = 30f) : Boolean {
+    return hypot((x - other.x).toDouble(), (y - other.y).toDouble()) < dragDistance
 }
