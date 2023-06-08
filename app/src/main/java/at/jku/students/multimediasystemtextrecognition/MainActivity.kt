@@ -29,15 +29,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -51,43 +52,33 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Outline
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import at.jku.students.multimediasystemtextrecognition.filter.FilterFactory
 import at.jku.students.multimediasystemtextrecognition.filter.FilterType
 import at.jku.students.multimediasystemtextrecognition.filter.toFloatRange
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -109,15 +100,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * First function called when activity is created
+     */
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Displaying edge-to-edge
-        //WindowCompat.setDecorFitsSystemWindows(window, false)
-
-
-//        requestCameraPermission()
         setContent {
             MaterialTheme {
                 Scaffold(
@@ -134,16 +122,13 @@ class MainActivity : ComponentActivity() {
                             .padding(18.dp)
                     ) { RecognitionUiRoot() }
                 }
-
-//                if (permissionGranted) {
-//                    Log.i(LOG_TAG, "Showing camera")
-//                    CameraView()
-//                }
             }
-
         }
     }
 
+    /**
+     * Former function for requesting the camera permission for the app
+     */
     private fun requestCameraPermission() {
         when {
             ContextCompat.checkSelfPermission(
@@ -164,15 +149,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/**
+ * Root component for the Recognition Ui
+ */
 @Composable
 fun RecognitionUiRoot(viewModel: ImageRecognitionViewModel = viewModel()) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     RecognitionUi(uiState, viewModel::addFilter, viewModel::selectFilterToConfigure,
             viewModel::changeStrength, viewModel::removeFilter, viewModel::setSourceImage,
-        viewModel::setHomographySelection, viewModel::applyHomography
+        viewModel::setHomographySelection, viewModel::applyHomography, viewModel
     )
 }
 
+/**
+ * Layout of the ui
+ */
 @Composable
 fun RecognitionUi(
     uiState: RecognitionUiState,
@@ -183,6 +174,7 @@ fun RecognitionUi(
     onImageSelected: (Bitmap) -> Unit,
     setHomographySelection: (Boolean) -> Unit,
     applyHomography: (HomographySettings) -> Unit,
+    viewModel: ImageRecognitionViewModel
 ) {
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         if (uiState.homography !is HomographyUiState.Selecting) {
@@ -206,7 +198,7 @@ fun RecognitionUi(
             TextRecognitionResult(uiState.textRecognition)
             Spacer(modifier = Modifier.height(12.dp))
         }
-        ImagePreview(uiState.imageFilter, uiState.homography) { settings ->
+        ImagePreview(viewModel, uiState.imageFilter, uiState.homography) { settings ->
             if (settings == null) {
                 setHomographySelection(false)
             } else {
@@ -216,6 +208,9 @@ fun RecognitionUi(
     }
 }
 
+/**
+ * Ui for the specific filter settings
+ */
 @Composable
 fun FilterSettings(
     uiState: FilterSettingsUiState,
@@ -236,6 +231,9 @@ fun FilterSettings(
     )
 }
 
+/**
+ * Space for the recognized text
+ */
 @Composable
 fun TextRecognitionResult(
     uiState: TextRecognitionUiState
@@ -257,11 +255,15 @@ fun TextRecognitionResult(
     }
 }
 
+/**
+ * Ui style and logic for showing the image in different ui states
+ */
 @Composable
 fun ImagePreview(
-    uiState: ImageFilterUiState,
+    viewModel: ImageRecognitionViewModel,
+    filterUiState: ImageFilterUiState,
     homographyUiState: HomographyUiState,
-    onHomographyCompleted: (HomographySettings?) -> Unit,
+    onHomographyCompleted: (HomographySettings?) -> Unit
 ) {
     var homographySettings by remember {
         mutableStateOf<HomographySettings?>(null)
@@ -277,12 +279,16 @@ fun ImagePreview(
         val radius = 18f
         val scale = 598.dp / height
 
+        //viewModel.resizeImage(image, 800, 2000)
+
         homographySettings = HomographySettings.fromSize(image.width.toFloat(), image.height.toFloat(), scale)
+
 
         Box(contentAlignment = Alignment.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(600.dp)) {
+                .height(600.dp)
+                .horizontalScroll(rememberScrollState())) {
             Canvas(
                 modifier = Modifier
                     .fillMaxHeight()
@@ -313,22 +319,28 @@ fun ImagePreview(
         }
     }
 
-    when (uiState) {
+    when (filterUiState) {
         ImageFilterUiState.Empty -> Unit
         ImageFilterUiState.FilterApplicationFailed ->
             Text(
                 text = "There was an error while applying the filters.",
                 color = Color.Red
             )
-        is ImageFilterUiState.FiltersApplied ->
-            defaultImageBox(uiState.filteredImage)
-        is ImageFilterUiState.ImageLoaded ->
-            defaultImageBox(uiState.sourceImage)
-        is ImageFilterUiState.ImageLoading ->
-            Box(contentAlignment = Alignment.Center,
+        is ImageFilterUiState.FiltersApplied -> {
+            //viewModel.resizeImage(800, 1080)
+            defaultImageBox(filterUiState.filteredImage)
+        }
+        is ImageFilterUiState.ImageLoaded -> {
+            defaultImageBox(filterUiState.sourceImage)
+        }
+        is ImageFilterUiState.ImageLoading -> {
+
+            Box(
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .background(Color.Black)) {
-                uiState.oldImage?.let {
+                    .background(Color.Black)
+            ) {
+                filterUiState.oldImage?.let {
                     Image(
                         bitmap = it.asImageBitmap(),
                         contentDescription = "",
@@ -337,8 +349,17 @@ fun ImagePreview(
                 }
                 CircularProgressIndicator()
             }
+        }
     }
-
+    if (filterUiState is ImageFilterUiState.FiltersApplied && homographyUiState is HomographyUiState.NotShown) {
+        Column {
+            Button(onClick = {
+                viewModel.saveImage()
+            }) {
+                Text(text = "Export image")
+            }
+        }
+    }
     if (homographyUiState is HomographyUiState.Selecting) {
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
@@ -353,6 +374,9 @@ fun ImagePreview(
     }
 }
 
+/**
+ * Ui style for all available filters
+ */
 @Composable
 @androidx.compose.ui.tooling.preview.Preview
 fun FilterPicker(
@@ -365,11 +389,19 @@ fun FilterPicker(
         Text(label)
 
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            // designing each button with the settings of the filter type enum
             enabledFilters.forEachIndexed { i, t ->
                 IconButton(onClick = { onFilterSelected(i) }) {
                     Icon(
-                        t.icon,
-                        contentDescription = "${t.displayName} Filter"
+                        Icons.Default.RadioButtonUnchecked,
+                        contentDescription = "${t.displayName} Filter",
+                        modifier = Modifier.size(32.dp),
+
+                        )
+                    Text(
+                        t.text,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -377,6 +409,9 @@ fun FilterPicker(
     }
 }
 
+/**
+ * Ui for Filter Parameters
+ */
 @Composable
 @androidx.compose.ui.tooling.preview.Preview
 fun SelectedFilterParameters(
@@ -419,6 +454,9 @@ fun SelectedFilterParameters(
     }
 }
 
+/**
+  * Button Row for 2 Buttons next to each other
+  */
 @Composable
 fun ButtonRow(
     setBitmap: (Bitmap) -> Unit,
@@ -429,12 +467,14 @@ fun ButtonRow(
     }
     val context = LocalContext.current
 
+    // setting up the launcher for picking an image of the gallery
     val launcher = rememberLauncherForActivityResult(
         contract =
         ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         imageUri = uri
 
+        // differentiate between SDK Versions
         uri?.let {
             if (Build.VERSION.SDK_INT < 28) {
                 setBitmap(
@@ -463,6 +503,7 @@ fun ButtonRow(
 }
 
 
+// Not anymore used functions. These were used for testing live video feed for the camera
 @Composable
 fun CameraView() {
     val lensFacing = CameraSelector.LENS_FACING_BACK

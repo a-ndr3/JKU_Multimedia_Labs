@@ -1,41 +1,32 @@
 package at.jku.students.multimediasystemtextrecognition.filter
 import android.graphics.Bitmap
 import android.graphics.Color
-import androidx.annotation.FloatRange
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.BlurOn
-import androidx.compose.material.icons.filled.BorderStyle
-import androidx.compose.material.icons.filled.Contrast
-import androidx.compose.material.icons.filled.Deblur
-import androidx.compose.material.icons.filled.FilterBAndW
-import androidx.compose.material.icons.filled.HdrStrong
-import androidx.compose.material.icons.filled.JoinInner
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Opacity
-import androidx.compose.material.icons.filled.Percent
-import androidx.compose.material.icons.filled.Timer10
-import androidx.compose.ui.graphics.vector.ImageVector
 import kotlinx.coroutines.*
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+
+/**
+ * Enum for defining filter name, display text, filterStrength range and default strength
+ * for each filter
+ */
 enum class FilterType(val displayName: String,
-                      val icon: ImageVector,
+                      val text: String,
                       val strengthRange: IntRange,
                       val defaultStrength: Int = 5
 ) {
-    BINARY("Binary", Icons.Default.JoinInner, 0..255, 155),
-    CONTRAST("Contrast", Icons.Default.Contrast, 0..255),
-    SHARPEN("Sharpen", Icons.Default.Deblur, 0..255),
-    MEDIAN("Median", Icons.Default.Percent, 0..255),
-    AVERAGING("Averaging", Icons.Default.BlurOn, 0..255),
-    BLACK_WHITE("Black/White", Icons.Default.FilterBAndW, 0..255),
-    BRIGHTNESS_HSV("Brightness", Icons.Default.LightMode, 0..255),
-    EDGE_COLORING("Edge Coloring", Icons.Default.BorderStyle, 0..255),
-    SATURATION_HSV("Saturation", Icons.Default.HdrStrong, 0..255),
-    HUE_HSV("Hue", Icons.Default.Opacity, 0..255),
+    BINARY("Binary", "Bi", 0..255, 155),
+    CONTRAST("Contrast", "Co", 0..255),
+    SHARPEN("Sharpen", "Sh", 0..255),
+    MEDIAN("Median", "Me", 0..255),
+    AVERAGING("Averaging", "Av", 0..255),
+    BLACK_WHITE("Black/White", "BW", 0..255),
+    BRIGHTNESS_HSV("Brightness", "Br", 0..255),
+    EDGE_COLORING("Edge Coloring", "EC", 0..255),
+    SATURATION_HSV("Saturation", "Sa", 0..255),
+    HUE_HSV("Hue", "Hu", 0..255),
 }
 
 fun IntRange.toFloatRange(): ClosedFloatingPointRange<Float> {
@@ -44,6 +35,9 @@ fun IntRange.toFloatRange(): ClosedFloatingPointRange<Float> {
     return s..e
 }
 
+/**
+ * Filter factory for creating a new filter by defining the FilterType
+ */
 class FilterFactory {
     companion object {
         fun createFilter(filterType: FilterType): IFilter {
@@ -63,6 +57,11 @@ class FilterFactory {
     }
 }
 
+/**
+ * Brightness filter for brightening up all pixels of an image. This is done by
+ * converting the image to the hsv color space, in order to get brightness information
+ * of each pixel.
+ */
 class BrightnessHSVFilter : IFilter {
     override fun apply(image: Bitmap, filterStrength: Int, additionalData: List<Any>): Bitmap {
         val width = image.width
@@ -89,6 +88,9 @@ class BrightnessHSVFilter : IFilter {
     }
 }
 
+/**
+ * Manipulates only the saturation value of an image by converting the image into the hsv color model.
+ */
 class SaturationFromHSVFilter : IFilter {
     override fun apply(image: Bitmap, filterStrength: Int, additionalData: List<Any>): Bitmap {
         val width = image.width
@@ -100,8 +102,11 @@ class SaturationFromHSVFilter : IFilter {
             for (i in 0 until width) {
                 val pixel = mutableImage.getPixel(i, j)
                 val hsv = FloatArray(3)
+                // converting to hsv
                 Color.colorToHSV(pixel, hsv)
 
+                // 1 is the index for the saturation in the hSv array
+                // manipulate saturation
                 hsv[1] += filterStrength / 255.0f
                 hsv[1] = max(0.0f, min(hsv[1], 1.0f))  //value within [0, 1]
 
@@ -109,11 +114,13 @@ class SaturationFromHSVFilter : IFilter {
                 result.setPixel(i, j, newPixel)
             }
         }
-
         return result
     }
 }
 
+/**
+ * Manipulates only the hue value of an image, by converting the image to the hsv color space.
+ */
 class HueFromHSVFilter : IFilter {
     override fun apply(image: Bitmap, filterStrength: Int, additionalData: List<Any>): Bitmap {
         val width = image.width
@@ -125,6 +132,7 @@ class HueFromHSVFilter : IFilter {
             for (i in 0 until width) {
                 val pixel = mutableImage.getPixel(i, j)
                 val hsv = FloatArray(3)
+                // converting
                 Color.colorToHSV(pixel, hsv)
 
                 hsv[0] += filterStrength / 255.0f
@@ -139,6 +147,9 @@ class HueFromHSVFilter : IFilter {
     }
 }
 
+/**
+ * TODO
+ */
 class EdgeColoringFilter : IFilter {
     private fun grayscale(rgb: Int): Double {
         val red = (rgb shr 16) and 0xFF
@@ -206,6 +217,7 @@ class EdgeColoringFilter : IFilter {
  */
 class AveragingFilter : IFilter {
     companion object {
+        // default block size
         const val BLOCK_SIZE = 100
     }
 
@@ -216,15 +228,19 @@ class AveragingFilter : IFilter {
         val mutableImage = image.copy(Bitmap.Config.ARGB_8888, true)
         val result = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
 
+        // computing every block in parallel to increase performance
         runBlocking {
             val jobs = mutableListOf<Job>()
 
+            // slicing up the picture into block
             for (blockStartY in 0 until height step BLOCK_SIZE) {
                 for (blockStartX in 0 until width step BLOCK_SIZE) {
+                    // spawn worker threads
                     jobs += launch {
                         val blockEndX = min(blockStartX + BLOCK_SIZE, width)
                         val blockEndY = min(blockStartY + BLOCK_SIZE, height)
 
+                        // iterating through each block
                         for (y in blockStartY until blockEndY) {
                             for (x in blockStartX until blockEndX) {
                                 var sumR = 0
@@ -264,6 +280,7 @@ class AveragingFilter : IFilter {
                 }
             }
 
+            // accumulate result
             jobs.forEach { it.join() }
         }
 
@@ -271,6 +288,9 @@ class AveragingFilter : IFilter {
     }
 }
 
+/**
+ * Filter to apply contrast with a factor calculation.
+ */
 class ContrastFilter : IFilter {
     override fun apply(image: Bitmap, filterStrength: Int, additionalData: List<Any>): Bitmap {
         val width = image.width
@@ -301,7 +321,13 @@ class ContrastFilter : IFilter {
     }
 }
 
+/**
+ * Median filter which runs in parallel to speed up computation time. This filter uses
+ * coroutines for parallel computation. The image is sliced into blocks beforehand, which
+ * are then computed in parallel.
+ */
 class MedianFilter : IFilter {
+    // default block size of 100 blocks per image
     companion object {
         const val BLOCK_SIZE = 100
         const val MAX_COLOR_VALUE = 255
@@ -314,6 +340,7 @@ class MedianFilter : IFilter {
         val mutableImage = image.copy(Bitmap.Config.ARGB_8888, true)
         val result = image.copy(Bitmap.Config.ARGB_8888, true)
 
+        // aperture values used for determining neighbors in a block
         val halfAperture = filterStrength / 2
         val apertureArea = filterStrength * filterStrength
         val medianIndex = apertureArea / 2
@@ -321,14 +348,18 @@ class MedianFilter : IFilter {
         runBlocking {
             val jobs = mutableListOf<Job>()
 
+            // slicing up the picture into blocks
             for (blockStartY in 0 until height step BLOCK_SIZE) {
                 for (blockStartX in 0 until width step BLOCK_SIZE) {
+                    // spawn one worker thread per block
                     jobs += launch {
                         val blockEndX = min(blockStartX + BLOCK_SIZE, width)
                         val blockEndY = min(blockStartY + BLOCK_SIZE, height)
 
                         for (j in blockStartY until blockEndY) {
                             for (i in blockStartX until blockEndX) {
+
+                                // histogram array counting the pixels in the block with the same color value
                                 val histogramR = IntArray(MAX_COLOR_VALUE + 1)
                                 val histogramG = IntArray(MAX_COLOR_VALUE + 1)
                                 val histogramB = IntArray(MAX_COLOR_VALUE + 1)
@@ -369,11 +400,15 @@ class MedianFilter : IFilter {
                     }
                 }
             }
+            // accumulate all the blocks to form the result
             jobs.forEach { it.join() }
         }
         return result
     }
 
+    /**
+     * Function for finding the median of a histogram array and returns the median value as an integer
+     */
     private fun findMedian(histogram: IntArray, medianIndex: Int): Int {
         var count = 0
         for (i in histogram.indices) {
@@ -386,6 +421,10 @@ class MedianFilter : IFilter {
     }
 }
 
+/**
+ * A filter used to sharpen a given image. This filter uses the @see MedianFilter to form
+ * a sharper image.
+ */
 class SharpenFilter : IFilter {
     override fun apply(image: Bitmap, filterStrength: Int, additionalData: List<Any>): Bitmap {
         val width = image.width
@@ -393,6 +432,7 @@ class SharpenFilter : IFilter {
         val mutableImage = image.copy(Bitmap.Config.ARGB_8888, true)
         val result = image.copy(Bitmap.Config.ARGB_8888, true)
 
+        // get the blurred image
         val blurredImage = MedianFilter().apply(image, filterStrength)
 
         for (j in 0 until height) {
@@ -400,6 +440,7 @@ class SharpenFilter : IFilter {
                 val originalPixel = mutableImage.getPixel(i, j)
                 val blurredPixel = blurredImage.getPixel(i, j)
 
+                // extracting each color channel
                 val originalR = Color.red(originalPixel)
                 val originalG = Color.green(originalPixel)
                 val originalB = Color.blue(originalPixel)
@@ -408,17 +449,21 @@ class SharpenFilter : IFilter {
                 val blurredG = Color.green(blurredPixel)
                 val blurredB = Color.blue(blurredPixel)
 
+                // compare blurred and original color channels
                 val r = originalR - blurredR
                 val g = originalG - blurredG
                 val b = originalB - blurredB
 
+                // sharpening amount based on filter strength
                 val sharpeningAmount = filterStrength.toDouble()
+
+                // clamp the sharpened amount between 0 and 255
                 val sharpenedPixel = Color.rgb(
                     (originalR + r * sharpeningAmount).roundToInt().coerceIn(0, 255),
                     (originalG + g * sharpeningAmount).roundToInt().coerceIn(0, 255),
                     (originalB + b * sharpeningAmount).roundToInt().coerceIn(0, 255)
                 )
-
+                // store sharpened pixels in a result bitmap
                 result.setPixel(i, j, sharpenedPixel)
             }
         }
@@ -427,8 +472,11 @@ class SharpenFilter : IFilter {
     }
 }
 
+/**
+ * Binary filter, setting each rgb channel value based on the @param filterStrength.
+ * Each color is either 0 or 255, depending on being above or below the filterStrength
+ */
 class BinaryFilter : IFilter {
-
     override fun apply(image: Bitmap, filterStrength: Int, additionalData: List<Any>): Bitmap {
         require(filterStrength in 0..255)
         { throw IllegalArgumentException("Filter strength must be between 0 and 255.") }
@@ -438,11 +486,13 @@ class BinaryFilter : IFilter {
 
         val result = image.copy(Bitmap.Config.ARGB_8888, true)
 
+        // iterating through each pixel
         for (y in 0 until height) {
             for (x in 0 until width) {
 
                 //get colors
                 val pixel = image.getPixel(x, y)
+                // extract color channel information
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
@@ -453,6 +503,7 @@ class BinaryFilter : IFilter {
                 val newB = if (b <= filterStrength) 0 else 255
 
                 val newColor = Color.rgb(newR, newG, newB)
+                // putting new pixel in the result bitmap
                 result.setPixel(x, y, newColor)
             }
         }
@@ -460,6 +511,9 @@ class BinaryFilter : IFilter {
     }
 }
 
+/**
+ * Black and White Filter aka Greyscale filter calculates the average of each rgb channel.
+ */
 class BlackWhiteFilter : IFilter {
     override fun apply(image: Bitmap, filterStrength: Int, additionalData: List<Any>): Bitmap {
 
@@ -472,19 +526,18 @@ class BlackWhiteFilter : IFilter {
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val pixel = mutableImage.getPixel(x, y)
+                // extracting rgb channels
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
 
+                // formula for calculating a gray value
                 val gray = (0.3 * r + 0.59 * g + 0.11 * b).toInt()
                 val grayscaleColor = Color.rgb(gray, gray, gray)
 
                 result.setPixel(x, y, grayscaleColor)
             }
         }
-
-        BinaryFilter().apply(result, filterStrength)
-
         return result
     }
 }

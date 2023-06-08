@@ -1,12 +1,19 @@
 package at.jku.students.multimediasystemtextrecognition
 
+import android.app.Application
+import android.content.ContentValues
 import android.graphics.Bitmap
 import android.graphics.Matrix
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.util.Log
+import android.widget.Toast
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
 import androidx.core.graphics.scale
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import at.jku.students.multimediasystemtextrecognition.filter.FilterFactory
 import at.jku.students.multimediasystemtextrecognition.filter.FilterType
@@ -26,30 +33,42 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.File.separator
+import java.io.FileOutputStream
+import java.io.OutputStream
 import java.lang.Float.max
-import java.lang.Float.min
+import java.time.LocalDateTime
 import java.util.concurrent.ExecutionException
 import kotlin.math.hypot
 import kotlin.time.Duration.Companion.milliseconds
 
 @OptIn(FlowPreview::class)
-class ImageRecognitionViewModel : ViewModel() {
+class ImageRecognitionViewModel(application: Application) : AndroidViewModel(application) {
     private val _filterSettingsState =
         MutableStateFlow<FilterSettingsUiState>(FilterSettingsUiState.FiltersEnabled())
     private val _imageFilterState =
         MutableStateFlow<ImageFilterUiState>(ImageFilterUiState.Empty)
-    private val _textRecognitionState = MutableStateFlow<TextRecognitionUiState>(TextRecognitionUiState.Empty)
+    private val _textRecognitionState =
+        MutableStateFlow<TextRecognitionUiState>(TextRecognitionUiState.Empty)
     private val _homographyState = MutableStateFlow<HomographyUiState>(HomographyUiState.NotShown)
     private val _requestFilterReload = MutableStateFlow(0)
 
     private val _appliedFilters = mutableListOf<AppliedFilter>()
+
     private var _sourceImage: Bitmap? = null
+    private var _filteredImage: Bitmap? = null
+
     private var _homographySettings: HomographySettings? = null
+
 
     private var _processingJob: Job? = null
 
+    // configures the default update behavior of each ui state
     init {
         viewModelScope.launch {
+            // Only apply the filter if there is a specific timeout where nothing in the ui changes.
+            // This prevents applying all filters upon every step of the strength slider
             _requestFilterReload.debounce {
                 if (_processingJob?.isActive == true) {
                     250.milliseconds
@@ -71,10 +90,13 @@ class ImageRecognitionViewModel : ViewModel() {
                     when (it) {
                         is ImageFilterUiState.ImageLoaded ->
                             ImageFilterUiState.ImageLoading(it.sourceImage)
+
                         is ImageFilterUiState.FiltersApplied ->
                             ImageFilterUiState.ImageLoading(it.filteredImage)
+
                         is ImageFilterUiState.ImageLoading ->
                             ImageFilterUiState.ImageLoading(it.oldImage)
+
                         else ->
                             ImageFilterUiState.ImageLoading()
                     }
@@ -83,22 +105,23 @@ class ImageRecognitionViewModel : ViewModel() {
                     TextRecognitionUiState.Loading
                 }
 
-                _processingJob =  viewModelScope.launch prj@ {
-                    val filteredImage = applyFilters()
-                    if (filteredImage == null) {
+                _processingJob = viewModelScope.launch prj@{
+                    _filteredImage = applyFilters()
+                    if (_filteredImage == null) {
                         _imageFilterState.update {
                             ImageFilterUiState.FilterApplicationFailed
                         }
                         return@prj
                     } else {
+
                         _imageFilterState.update {
                             ImageFilterUiState.FiltersApplied(
                                 _sourceImage!!,
-                                filteredImage,
+                                _filteredImage!!,
                             )
                         }
                     }
-                    val detectedText = runDetection(filteredImage)
+                    val detectedText = runDetection(_filteredImage!!)
                     _textRecognitionState.update {
                         TextRecognitionUiState.Recognized(
                             detectedText,
@@ -109,6 +132,7 @@ class ImageRecognitionViewModel : ViewModel() {
         }
     }
 
+    // combines all the different ui states to one uiState for easier handling
     val uiState = combine(
         _imageFilterState,
         _textRecognitionState,
@@ -127,6 +151,10 @@ class ImageRecognitionViewModel : ViewModel() {
         initialValue = RecognitionUiState()
     )
 
+    /**
+     * Sets the source image, which is picked with the "Pick image" button. Rescales the image to fit to the canvas
+     */
+    // TODO Images are sometimes out of bounds in the right screen edge, especially when using external images with a different resolution than screenshots
     fun setSourceImage(image: Bitmap) {
         Log.d("ViewModel", "set source image (${image.width} x ${image.height})")
         _sourceImage = if (image.width > 1080 || image.height > 1080) {
@@ -147,18 +175,26 @@ class ImageRecognitionViewModel : ViewModel() {
                 _sourceImage!!,
             )
         }
+        resizeImage(700, 1080)
         reapply()
     }
 
+    /**
+     * Request a filter reload
+     */
     private fun reapply() {
         _requestFilterReload.update { it + 1 }
     }
 
+    /**
+     * Adds a filter from the Available to the Enabled list
+     */
     fun addFilter(filter: FilterType) {
         val newIndex = _appliedFilters.size
         val newFilter = AppliedFilter(filter, filter.defaultStrength)
         _appliedFilters.add(newFilter)
         Log.d("ViewModel", "add filter")
+        // update ui
         _filterSettingsState.update {
             FilterSettingsUiState.FilterSelected(
                 _appliedFilters.toList(),
@@ -168,6 +204,9 @@ class ImageRecognitionViewModel : ViewModel() {
         reapply()
     }
 
+    /**
+     * Selects an enabled filter to configure and updates the ui accordingly
+     */
     fun selectFilterToConfigure(index: Int) {
         assert(index in 0 until _appliedFilters.size)
         Log.d("ViewModel", "select filter to configure idx $index")
@@ -179,6 +218,9 @@ class ImageRecognitionViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Change the filterStrength @param strength of specified filter with @param index.
+     */
     fun changeStrength(index: Int, strength: Int) {
         assert(index in 0 until _appliedFilters.size)
         Log.d("ViewModel", "change strength to $strength at idx $index")
@@ -199,6 +241,9 @@ class ImageRecognitionViewModel : ViewModel() {
         reapply()
     }
 
+    /**
+     * Removes a filter with a specific @param index
+     */
     fun removeFilter(index: Int) {
         _appliedFilters.removeAt(index)
         Log.d("ViewModel", "remove filter $index")
@@ -210,6 +255,9 @@ class ImageRecognitionViewModel : ViewModel() {
         reapply()
     }
 
+    /**
+     * Applies all enabled filters in the selected order with selected filter strengths
+     */
     private suspend fun applyFilters(): Bitmap? {
         Log.d("ViewModel", "apply filters ${_sourceImage == null}")
         if (_sourceImage == null) return null
@@ -233,13 +281,18 @@ class ImageRecognitionViewModel : ViewModel() {
         }
     }
 
-    private suspend fun runDetection(image: Bitmap) : String {
+    /**
+     * Runs the actual text recognition by calling the Google ML Kit API
+     */
+    private suspend fun runDetection(image: Bitmap): String {
         Log.d("ViewModel", "run detection")
         return withContext(Dispatchers.IO) {
+            // calling Google ML Kit API
             val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
             val inp = InputImage.fromBitmap(image, 0)
 
+            // await result from API and apply to the Ui
             try {
                 val res = Tasks.await(recognizer.process(inp))
                 return@withContext res.text
@@ -250,6 +303,9 @@ class ImageRecognitionViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Updating the @see HomographyUiState to select homography points
+     */
     fun setHomographySelection(active: Boolean = true) {
         _homographyState.update {
             if (active) {
@@ -260,6 +316,9 @@ class ImageRecognitionViewModel : ViewModel() {
         }
     }
 
+    /**
+     * apply given homography settings and update the state with @param settings
+     */
     fun applyHomography(settings: HomographySettings) {
         _homographySettings = settings
         _homographyState.update {
@@ -267,8 +326,125 @@ class ImageRecognitionViewModel : ViewModel() {
         }
         reapply()
     }
+
+    /**
+     * Saves the filtered bitmap to the phones gallery. This task depend on the exact Android API,
+     * however both ways are implemented.
+     */
+    fun saveImage() {
+        val context = getApplication<Application>().applicationContext
+        val folderName = context.applicationInfo
+        val bitmap = _filteredImage
+        var successWrite = false
+        Log.e("SAVE", "SAving")
+        if (Build.VERSION.SDK_INT >= 29) {
+            val values = contentValues()    // set metadata
+            // set path
+            values.put(
+                MediaStore.Images.Media.RELATIVE_PATH,
+                "Pictures/$folderName"
+            )   // API >= 29 keeps track of the file name
+            values.put(MediaStore.Images.Media.IS_PENDING, true)
+
+            // resolve metadata values
+            val uri: Uri? = context.contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                values
+            )
+            if (uri != null) {
+                // write to device
+                saveImageToStream(bitmap!!, context.contentResolver.openOutputStream(uri))
+                values.put(MediaStore.Images.Media.IS_PENDING, false)
+                context.contentResolver.update(uri, values, null, null)
+                successWrite = true
+            }
+        } else {
+            // set path
+            val directory = File(
+                Environment.getExternalStorageDirectory().toString() + separator + folderName
+            )
+            if (!directory.exists()) {
+                directory.mkdirs()
+            }
+            // API < 29 needs a defined file name
+            val fileName = "FilteredImage_${LocalDateTime.now()}"
+            val file = File(directory, fileName)
+            // write to device
+            saveImageToStream(bitmap!!, FileOutputStream(file))
+            val values = contentValues()
+            values.put(MediaStore.Images.Media.DATA, file.absolutePath)
+            context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+            successWrite = true
+        }
+        // inform the user if the export was successful
+        if (successWrite) {
+            Toast.makeText(context, "Image saved", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Image could not be saved", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Sets metadata values for Android to recognize the image
+     */
+    private fun contentValues(): ContentValues {
+        val values = ContentValues()
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+        values.put(MediaStore.Images.Media.DATE_ADDED, System.currentTimeMillis() / 1000);
+        values.put(MediaStore.Images.Media.DATE_TAKEN, System.currentTimeMillis());
+        return values
+    }
+
+    /**
+     * Helper function to compress and write the bitmap to the given outputStream
+     */
+    private fun saveImageToStream(bitmap: Bitmap, outputStream: OutputStream?) {
+        if (outputStream != null) {
+            try {
+                // compress image and write to stream
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, outputStream)
+                outputStream.close()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
+     * Used for resizing an image to fit in the screen width of the phone.
+     */
+    fun resizeImage(maxWidth: Int, maxHeight: Int) : Bitmap? {
+        var resizedBitmap: Bitmap? = null
+        val bitmap = _sourceImage
+        if (bitmap != null) {
+            // no need to resize
+            if (bitmap.width <= maxWidth && bitmap.height <= maxHeight) {
+                return _sourceImage
+            }
+
+            val width: Int = bitmap.width
+            val height: Int = bitmap.height
+            val scaleWidth = maxWidth.toFloat() / width
+            val scaleHeight = maxHeight.toFloat() / height
+            // create transformation matrix
+            val matrix = Matrix()
+            // resize bitmap
+            matrix.postScale(scaleWidth, scaleHeight)
+
+            // create resized bitmap with calculated matrix
+            resizedBitmap = Bitmap.createBitmap(
+                bitmap, 0, 0, width, height, matrix, false
+            )
+            Log.d("BM", "Old: ${bitmap.width}")
+            Log.d("BM", "New: ${resizedBitmap.width}")
+        }
+        return resizedBitmap
+    }
 }
 
+/**
+ * All possible states the text recognition section can be in:
+ */
 data class RecognitionUiState(
     val filterSettings: FilterSettingsUiState = FilterSettingsUiState.FiltersEnabled(),
     val imageFilter: ImageFilterUiState = ImageFilterUiState.Empty,
@@ -276,6 +452,12 @@ data class RecognitionUiState(
     val homography: HomographyUiState = HomographyUiState.NotShown,
 )
 
+/**
+ * This interface declares all possible states the Filter Enabled section can be in.
+ * The possible states are:
+ * - FiltersEnabled: One or more filter is currently enabled
+ * - FilterSelected: One or more filter is currently enabled and one is selected for changing settings
+ */
 sealed interface FilterSettingsUiState {
     val appliedFilters: List<AppliedFilter>
 
@@ -288,10 +470,19 @@ sealed interface FilterSettingsUiState {
         val filterToConfigure: FilterToConfigure = FilterToConfigure(),
     ) : FilterSettingsUiState
 
+    // holds all enabled filters in an array and maps it to the filter type
     val enabledFilters: Array<FilterType>
         get() = appliedFilters.map { it.type }.toTypedArray()
 }
 
+/**
+ * Declares the possible states of the homography ui. It is either:
+ * - not shown: NotShown
+ * or
+ * - currently selecting points: Selecting
+ * or
+ * - applied: Selected with specific setting (e.g point position)
+ */
 sealed interface HomographyUiState {
     object NotShown : HomographyUiState
 
@@ -302,9 +493,18 @@ sealed interface HomographyUiState {
     ) : HomographyUiState
 }
 
+/**
+ * An interface declaring a state in which a loaded picture can be. The image can be
+ * - not selected: empty
+ * - selected, but still loading: ImageLoading
+ * - selected and loaded: ImageLoaded
+ * - selected and already filtered: FiltersApplied
+ */
 sealed interface ImageFilterUiState {
     object Empty : ImageFilterUiState
 
+
+    // data classes for all states an image can be in
     data class ImageLoading(
         val oldImage: Bitmap? = null,
     ) : ImageFilterUiState
@@ -314,6 +514,7 @@ sealed interface ImageFilterUiState {
     ) : ImageFilterUiState
 
     data class FiltersApplied(
+
         val sourceImage: Bitmap,
         val filteredImage: Bitmap,
     ) : ImageFilterUiState
@@ -321,38 +522,60 @@ sealed interface ImageFilterUiState {
     object FilterApplicationFailed : ImageFilterUiState
 }
 
+/**
+ * Ui state only for the text recognition part. This is for example used to display
+ * a loading indicator for the recognized text
+ */
 sealed interface TextRecognitionUiState {
-    object Empty : TextRecognitionUiState
+    object Empty : TextRecognitionUiState   // no text recognized
 
-    object Loading : TextRecognitionUiState
+    object Loading : TextRecognitionUiState // text is being recognized
 
-    data class Recognized (
+    /**
+     * Data for the actual recognized text
+     */
+    data class Recognized(
         val text: String
     ) : TextRecognitionUiState
 
-    data class ErrorOccurred (
+    /**
+     * Data for an error message received by Google ML Kit
+     */
+    data class ErrorOccurred(
         val message: String
     ) : TextRecognitionUiState
 }
 
+/**
+ * Class for one specific enabled filter
+ */
 data class FilterToConfigure(
-    val index: Int = 0,
-    val filter: AppliedFilter = AppliedFilter()
+    val index: Int = 0,     // index of the filter in the enabled list
+    val filter: AppliedFilter = AppliedFilter() // instance of the applied filter
 )
 
+/**
+ * Class for one applied filter
+ */
 data class AppliedFilter(val type: FilterType = FilterType.BLACK_WHITE, var strength: Int = 50)
 
+/**
+ * default values for homography
+ */
 data class HomographySettings(
     val topLeft: Offset = Offset(0f, 0f),
     val topRight: Offset = Offset(100f, 0f),
-    val bottomLeft: Offset= Offset(0f, 100f),
-    val bottomRight: Offset= Offset(100f, 100f),
+    val bottomLeft: Offset = Offset(0f, 100f),
+    val bottomRight: Offset = Offset(100f, 100f),
     val onDisplayWidth: Float = 100f,
     val onDisplayHeight: Float = 100f,
     val scaleToImage: Float = 1f
 ) {
     companion object {
-        fun fromSize(imageWidth: Float, imageHeight: Float, scale: Float) : HomographySettings {
+        /**
+         * Returns the homography settings (initial values) for given image dimensions
+         */
+        fun fromSize(imageWidth: Float, imageHeight: Float, scale: Float): HomographySettings {
             return HomographySettings(
                 Offset(0f, 0f),
                 Offset(imageWidth * scale, 0f),
@@ -365,7 +588,11 @@ data class HomographySettings(
         }
     }
 
-    fun applyToBitmap(image: Bitmap) : Bitmap {
+    /**
+     * Calculates the homography between the bitmap and the defined points.
+     * Returns the transformed (cropped, rotated, tilted) image.
+     */
+    fun applyToBitmap(image: Bitmap): Bitmap {
         val m = Matrix()
         val originalPoints = arrayOf(
             0f, 0f, // top left x, y
@@ -383,14 +610,25 @@ data class HomographySettings(
         m.setPolyToPoly(originalPoints, 0, mappedPoints, 0, 4)
         Log.d("HomographySettings", "applying $m")
 
-        val newHeight = (max(bottomLeft.y - topLeft.y, bottomRight.y - topRight.y) / scaleToImage).toInt()
-        val newWidth = (max(bottomRight.x - bottomLeft.x, topRight.x - topLeft.x) / scaleToImage).toInt()
+        val newHeight =
+            (max(bottomLeft.y - topLeft.y, bottomRight.y - topRight.y) / scaleToImage).toInt()
+        val newWidth =
+            (max(bottomRight.x - bottomLeft.x, topRight.x - topLeft.x) / scaleToImage).toInt()
         val morphed = Bitmap.createBitmap(image, 0, 0, image.width, image.height, m, true)
-        return Bitmap.createBitmap(morphed, (topLeft.x / scaleToImage).toInt(), (topLeft.y / scaleToImage).toInt(), image.width, image.height)
+        return Bitmap.createBitmap(
+            morphed,
+            (topLeft.x / scaleToImage).toInt(),
+            (topLeft.y / scaleToImage).toInt(),
+            image.width,
+            image.height
+        )
 
     }
 
-    fun updateNearest(position: Offset) : HomographySettings {
+    /**
+     * Update the nearest homography defining point to the click position
+     */
+    fun updateNearest(position: Offset): HomographySettings {
         val dragDistance = max(onDisplayWidth / 12f, onDisplayHeight / 12f)
 
         return if (topLeft.near(position, dragDistance)) {
@@ -406,7 +644,11 @@ data class HomographySettings(
         }
     }
 
-    private fun clamp(position: Offset) : Offset {
+    /**
+     * Clamps the homography points to the image. This way the user can not drag
+     * the points out of the image.
+     */
+    private fun clamp(position: Offset): Offset {
         var clamped = position
         if (position.x < 0) {
             clamped = clamped.copy(x = 0f)
@@ -414,6 +656,7 @@ data class HomographySettings(
         if (position.y < 0) {
             clamped = clamped.copy(y = 0f)
         }
+        // TODO clamping working not correctly after moving point topRight and botRigth
         if (position.x > onDisplayWidth) {
             clamped = clamped.copy(x = onDisplayWidth)
         }
@@ -423,6 +666,7 @@ data class HomographySettings(
         return clamped
     }
 
+    // Path lines between the points to form the desired rectangle
     val path: Path
         get() {
             val path = Path()
@@ -435,6 +679,10 @@ data class HomographySettings(
         }
 }
 
-fun Offset.near(other: Offset, dragDistance: Float = 30f) : Boolean {
+/**
+ * Function to determine if a point is with a specific distance
+ */
+fun Offset.near(other: Offset, dragDistance: Float = 30f): Boolean {
+    // for a triangle between one point and the other and calculate the hypotenuse to get the distance
     return hypot((x - other.x).toDouble(), (y - other.y).toDouble()) < dragDistance
 }
