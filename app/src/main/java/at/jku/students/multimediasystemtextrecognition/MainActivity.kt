@@ -26,6 +26,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -67,11 +68,16 @@ import androidx.compose.ui.graphics.drawscope.inset
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.max
+import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
@@ -82,6 +88,8 @@ import at.jku.students.multimediasystemtextrecognition.filter.toFloatRange
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.max
+import kotlin.math.min
 
 const val LOG_TAG = "MMS"
 
@@ -176,6 +184,17 @@ fun RecognitionUi(
     applyHomography: (HomographySettings) -> Unit,
     viewModel: ImageRecognitionViewModel
 ) {
+    val setHomographyButton = if (uiState.imageFilter is ImageFilterUiState.FiltersApplied || uiState.imageFilter is ImageFilterUiState.ImageLoaded)
+        {{ setHomographySelection(true) }}
+    else
+        null
+
+    val exportImage = if (uiState.imageFilter is ImageFilterUiState.FiltersApplied &&
+            uiState.homography !is HomographyUiState.Selecting)
+        {{ viewModel.saveImage() }}
+    else
+        null
+
     Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
         if (uiState.homography !is HomographyUiState.Selecting) {
             FilterPicker(label = "Available:", onFilterSelected = {
@@ -188,17 +207,16 @@ fun RecognitionUi(
             )
             FilterSettings(uiState.filterSettings, onFilterStrengthChanged, onFilterRemove)
             Spacer(modifier = Modifier.height(12.dp))
-            if (uiState.imageFilter is ImageFilterUiState.FiltersApplied ||
-                uiState.imageFilter is ImageFilterUiState.ImageLoaded) {
-                ButtonRow(onImageSelected) { setHomographySelection(true) }
-            } else {
-                ButtonRow(onImageSelected, null)
-            }
+            ButtonRow(
+                onImageSelected,
+                onSetHomography = setHomographyButton,
+                onExportImage = exportImage,
+            )
             Spacer(modifier = Modifier.height(12.dp))
             TextRecognitionResult(uiState.textRecognition)
             Spacer(modifier = Modifier.height(12.dp))
         }
-        ImagePreview(viewModel, uiState.imageFilter, uiState.homography) { settings ->
+        ImagePreview(uiState.imageFilter, uiState.homography) { settings ->
             if (settings == null) {
                 setHomographySelection(false)
             } else {
@@ -260,7 +278,6 @@ fun TextRecognitionResult(
  */
 @Composable
 fun ImagePreview(
-    viewModel: ImageRecognitionViewModel,
     filterUiState: ImageFilterUiState,
     homographyUiState: HomographyUiState,
     onHomographyCompleted: (HomographySettings?) -> Unit
@@ -274,25 +291,48 @@ fun ImagePreview(
     }
 
     val defaultImageBox = @Composable { image: Bitmap ->
-        val width = with(LocalDensity.current) { image.width.toDp() }
-        val height = with(LocalDensity.current) { image.height.toDp() }
-        val radius = 18f
-        val scale = 598.dp / height
+        val cornerHandleRadius = 18f
+        val maxWidth = with(LocalConfiguration.current) { this.screenWidthDp * 0.7f }
+        val maxHeight = with(LocalDensity.current) { 200.dp.toPx() }
 
-        //viewModel.resizeImage(image, 800, 2000)
+        val imageRatio = image.width.toFloat() / image.height.toFloat()
+        var onDisplayWidth: Dp
+        var onDisplayHeight: Dp
 
-        homographySettings = HomographySettings.fromSize(image.width.toFloat(), image.height.toFloat(), scale)
+        if (image.width > image.height) {
+            onDisplayWidth = maxWidth.dp
+            onDisplayHeight = onDisplayWidth / imageRatio
+        } else {
+            onDisplayHeight = maxHeight.dp
+            onDisplayWidth = onDisplayHeight * imageRatio
+        }
+
+        if (onDisplayWidth > maxWidth.dp) {
+            onDisplayWidth = maxWidth.dp
+            onDisplayHeight = onDisplayWidth / imageRatio
+        }
+        if (onDisplayHeight > maxHeight.dp) {
+            onDisplayHeight = maxHeight.dp
+            onDisplayWidth = onDisplayHeight * imageRatio
+        }
+
+        val physicalWidth = with(LocalDensity.current) { onDisplayWidth.toPx() }
+        val physicalHeight = with(LocalDensity.current) { onDisplayHeight.toPx() }
+
+        val scale = min(physicalWidth / image.width, physicalHeight / image.height)
+
+        homographySettings = HomographySettings.fromSize(physicalWidth, physicalHeight, scale)
 
 
         Box(contentAlignment = Alignment.Center,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(600.dp)
+                .height(onDisplayHeight)
                 .horizontalScroll(rememberScrollState())) {
             Canvas(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .width(width * scale)
+                    .width(onDisplayWidth)
                     .pointerInput(Unit) {
                         detectDragGestures { change, _ ->
                             change.consume()
@@ -300,21 +340,18 @@ fun ImagePreview(
                         }
                     }
             ) {
-                scale(scale, Offset.Zero) {
-                    inset(0f, radius) {
+                translate (0f, cornerHandleRadius) {
+                    scale(scale, Offset.Zero) {
                         drawImage(image.asImageBitmap())
                     }
-                }
 
-                if (homographyUiState !is HomographyUiState.Selecting) return@Canvas
-                translate (0f, radius) {
-                    drawCircle(Color.Red, radius, homographySettings!!.topLeft)
-                    drawCircle(Color.Red, radius, homographySettings!!.topRight)
-                    drawCircle(Color.Red, radius, homographySettings!!.bottomLeft)
-                    drawCircle(Color.Red, radius, homographySettings!!.bottomRight)
+                    if (homographyUiState !is HomographyUiState.Selecting) return@Canvas
+                    drawCircle(Color.Red, cornerHandleRadius, homographySettings!!.topLeft)
+                    drawCircle(Color.Red, cornerHandleRadius, homographySettings!!.topRight)
+                    drawCircle(Color.Red, cornerHandleRadius, homographySettings!!.bottomLeft)
+                    drawCircle(Color.Red, cornerHandleRadius, homographySettings!!.bottomRight)
                     drawPath(homographySettings!!.path, Color.Red, style = Stroke(3.0f))
                 }
-
             }
         }
     }
@@ -327,8 +364,14 @@ fun ImagePreview(
                 color = Color.Red
             )
         is ImageFilterUiState.FiltersApplied -> {
-            //viewModel.resizeImage(800, 1080)
-            defaultImageBox(filterUiState.filteredImage)
+            defaultImageBox(
+                if (homographyUiState is HomographyUiState.Selecting) {
+                    // always show source image when re-selecting homography points
+                    filterUiState.sourceImage
+                } else {
+                    filterUiState.filteredImage
+                }
+            )
         }
         is ImageFilterUiState.ImageLoaded -> {
             defaultImageBox(filterUiState.sourceImage)
@@ -351,15 +394,7 @@ fun ImagePreview(
             }
         }
     }
-    if (filterUiState is ImageFilterUiState.FiltersApplied && homographyUiState is HomographyUiState.NotShown) {
-        Column {
-            Button(onClick = {
-                viewModel.saveImage()
-            }) {
-                Text(text = "Export image")
-            }
-        }
-    }
+
     if (homographyUiState is HomographyUiState.Selecting) {
         Spacer(modifier = Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
@@ -455,12 +490,13 @@ fun SelectedFilterParameters(
 }
 
 /**
-  * Button Row for 2 Buttons next to each other
+  * Button Row for the action buttons next to each other
   */
 @Composable
 fun ButtonRow(
     setBitmap: (Bitmap) -> Unit,
-    enableHomographyPicker: (() -> Unit)?,
+    onSetHomography: (() -> Unit)?,
+    onExportImage: (() -> Unit)?,
 ) {
     var imageUri by remember {
         mutableStateOf<Uri?>(null)
@@ -488,17 +524,35 @@ fun ButtonRow(
             }
         }
     }
-    Row {
-        Button(onClick = { launcher.launch("image/*") }) {
-            Text(text = "Pick image")
+
+    val smallPadding = PaddingValues(12.dp, 8.dp)
+    val smallText = 12.sp
+
+    Row(Modifier.horizontalScroll(rememberScrollState())) {
+        Button(
+            onClick = { launcher.launch("image/*") },
+            contentPadding = smallPadding,
+        ) {
+            Text(text = "Pick image", fontSize = smallText)
         }
-        Spacer(modifier = Modifier.width(8.dp))
-        if (enableHomographyPicker != null) {
-            Button(onClick = enableHomographyPicker) {
-                Text(text = "Set edge points")
+
+        if (onSetHomography != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(onClick = onSetHomography,
+                contentPadding = smallPadding,
+            ) {
+                Text(text = "Set edge points", fontSize = smallText)
             }
         }
 
+        if (onExportImage != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            Button(onClick = onExportImage,
+                contentPadding = smallPadding,
+            ) {
+                Text(text = "Export image", fontSize = smallText)
+            }
+        }
     }
 }
 

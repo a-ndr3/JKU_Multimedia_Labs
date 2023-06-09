@@ -38,8 +38,10 @@ import java.io.File.separator
 import java.io.FileOutputStream
 import java.io.OutputStream
 import java.lang.Float.max
+import java.lang.Float.min
 import java.time.LocalDateTime
 import java.util.concurrent.ExecutionException
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -115,10 +117,16 @@ class ImageRecognitionViewModel(application: Application) : AndroidViewModel(app
                     } else {
 
                         _imageFilterState.update {
-                            ImageFilterUiState.FiltersApplied(
-                                _sourceImage!!,
-                                _filteredImage!!,
-                            )
+                            if (_appliedFilters.size > 0 || _homographyState.value is HomographyUiState.Selected) {
+                                ImageFilterUiState.FiltersApplied(
+                                    _sourceImage!!,
+                                    _filteredImage!!,
+                                )
+                            } else {
+                                ImageFilterUiState.ImageLoaded(
+                                    _sourceImage!!,
+                                )
+                            }
                         }
                     }
                     val detectedText = runDetection(_filteredImage!!)
@@ -157,17 +165,15 @@ class ImageRecognitionViewModel(application: Application) : AndroidViewModel(app
     // TODO Images are sometimes out of bounds in the right screen edge, especially when using external images with a different resolution than screenshots
     fun setSourceImage(image: Bitmap) {
         Log.d("ViewModel", "set source image (${image.width} x ${image.height})")
-        _sourceImage = if (image.width > 1080 || image.height > 1080) {
-            val factor = if (image.width > image.height) {
-                1080f / image.width
-            } else {
-                1080f / image.height
-            }
-            Log.d("ViewModel", "factor $factor")
-            image.scale((image.width * factor).toInt(), (image.height * factor).toInt())
+
+        val factor = if (image.width > image.height) {
+            1080f / image.width
         } else {
-            image
+            1080f / image.height
         }
+        Log.d("ViewModel", "factor $factor")
+
+        _sourceImage = image.scale((image.width * factor).toInt(), (image.height * factor).toInt())
 
         Log.d("ViewModel", "set source image (${_sourceImage!!.width} x ${_sourceImage!!.height})")
         _imageFilterState.update {
@@ -175,7 +181,11 @@ class ImageRecognitionViewModel(application: Application) : AndroidViewModel(app
                 _sourceImage!!,
             )
         }
-        resizeImage(700, 1080)
+        _filteredImage = null
+        _homographySettings = null
+        _homographyState.update {
+            HomographyUiState.NotShown
+        }
         reapply()
     }
 
@@ -409,37 +419,6 @@ class ImageRecognitionViewModel(application: Application) : AndroidViewModel(app
             }
         }
     }
-
-    /**
-     * Used for resizing an image to fit in the screen width of the phone.
-     */
-    fun resizeImage(maxWidth: Int, maxHeight: Int) : Bitmap? {
-        var resizedBitmap: Bitmap? = null
-        val bitmap = _sourceImage
-        if (bitmap != null) {
-            // no need to resize
-            if (bitmap.width <= maxWidth && bitmap.height <= maxHeight) {
-                return _sourceImage
-            }
-
-            val width: Int = bitmap.width
-            val height: Int = bitmap.height
-            val scaleWidth = maxWidth.toFloat() / width
-            val scaleHeight = maxHeight.toFloat() / height
-            // create transformation matrix
-            val matrix = Matrix()
-            // resize bitmap
-            matrix.postScale(scaleWidth, scaleHeight)
-
-            // create resized bitmap with calculated matrix
-            resizedBitmap = Bitmap.createBitmap(
-                bitmap, 0, 0, width, height, matrix, false
-            )
-            Log.d("BM", "Old: ${bitmap.width}")
-            Log.d("BM", "New: ${resizedBitmap.width}")
-        }
-        return resizedBitmap
-    }
 }
 
 /**
@@ -575,14 +554,14 @@ data class HomographySettings(
         /**
          * Returns the homography settings (initial values) for given image dimensions
          */
-        fun fromSize(imageWidth: Float, imageHeight: Float, scale: Float): HomographySettings {
+        fun fromSize(onDisplayWidth: Float, onDisplayHeight: Float, scale: Float): HomographySettings {
             return HomographySettings(
                 Offset(0f, 0f),
-                Offset(imageWidth * scale, 0f),
-                Offset(0f, imageHeight * scale),
-                Offset(imageWidth * scale, imageHeight * scale),
-                imageWidth,
-                imageHeight,
+                Offset(onDisplayWidth, 0f),
+                Offset(0f, onDisplayHeight),
+                Offset(onDisplayWidth, onDisplayHeight),
+                onDisplayWidth,
+                onDisplayHeight,
                 scale,
             )
         }
@@ -594,42 +573,59 @@ data class HomographySettings(
      */
     fun applyToBitmap(image: Bitmap): Bitmap {
         val m = Matrix()
+        val newHeight =
+            (max(bottomLeft.y - topLeft.y, bottomRight.y - topRight.y) / scaleToImage).toInt()
+        val newWidth =
+            (max(bottomRight.x - bottomLeft.x, topRight.x - topLeft.x) / scaleToImage).toInt()
+        val newLeft = max(topLeft.x, bottomLeft.x) / scaleToImage
+        val newTop = max(topLeft.y, topRight.y) / scaleToImage
         val originalPoints = arrayOf(
-            0f, 0f, // top left x, y
-            image.width.toFloat(), 0f, // top right x, y
-            0f, image.height.toFloat(), // left bottom x, y
-            image.width.toFloat(), image.height.toFloat() // right bottom x, y
+            newLeft, newTop, // top left x, y
+            newWidth.toFloat(), newTop, // top right x, y
+            newLeft, newHeight.toFloat(), // left bottom x, y
+            newWidth.toFloat(), newHeight.toFloat() // right bottom x, y
         ).toFloatArray()
-        val mappedPoints = arrayOf(
-            topLeft.x, -topLeft.y,
+        var mappedPoints = arrayOf(
+            topLeft.x, topLeft.y,
             topRight.x, topRight.y,
             bottomLeft.x, bottomLeft.y,
             bottomRight.x, bottomRight.y,
         ).toFloatArray()
 
-        m.setPolyToPoly(originalPoints, 0, mappedPoints, 0, 4)
+        mappedPoints = mappedPoints.map { it / scaleToImage }.toFloatArray()
+
+        m.setPolyToPoly(mappedPoints, 0, originalPoints, 0, 4)
         Log.d("HomographySettings", "applying $m")
 
-        val newHeight =
-            (max(bottomLeft.y - topLeft.y, bottomRight.y - topRight.y) / scaleToImage).toInt()
-        val newWidth =
-            (max(bottomRight.x - bottomLeft.x, topRight.x - topLeft.x) / scaleToImage).toInt()
         val morphed = Bitmap.createBitmap(image, 0, 0, image.width, image.height, m, true)
+
+        val boundaries =  arrayOf(
+            0f, 0f, // top left x, y
+            image.width.toFloat(), 0f, // top right x, y
+            0f, image.height.toFloat(), // left bottom x, y
+            image.width.toFloat(), image.height.toFloat() // right bottom x, y
+        ).toFloatArray()
+        m.mapPoints(boundaries)
+
+        val cropLeft = abs(boundaries[0] - boundaries[4])
+        val cropTop = abs(boundaries[1] - boundaries[3])
+        val cropRight = abs(boundaries[2] - boundaries[6])
+        val cropBottom = abs(boundaries[5] - boundaries[7])
+
         return Bitmap.createBitmap(
             morphed,
-            (topLeft.x / scaleToImage).toInt(),
-            (topLeft.y / scaleToImage).toInt(),
-            image.width,
-            image.height
+            cropLeft.toInt(),
+            cropTop.toInt(),
+            (morphed.width - cropLeft - cropRight).toInt(),
+            (morphed.height - cropTop - cropBottom).toInt(),
         )
-
     }
 
     /**
      * Update the nearest homography defining point to the click position
      */
     fun updateNearest(position: Offset): HomographySettings {
-        val dragDistance = max(onDisplayWidth / 12f, onDisplayHeight / 12f)
+        val dragDistance = max(onDisplayWidth / 6f, onDisplayHeight / 6f)
 
         return if (topLeft.near(position, dragDistance)) {
             copy(topLeft = clamp(position))

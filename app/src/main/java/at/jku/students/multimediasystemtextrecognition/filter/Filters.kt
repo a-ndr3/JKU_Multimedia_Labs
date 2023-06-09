@@ -17,16 +17,16 @@ enum class FilterType(val displayName: String,
                       val strengthRange: IntRange,
                       val defaultStrength: Int = 5
 ) {
-    BINARY("Binary", "Bi", 0..255, 155),
-    CONTRAST("Contrast", "Co", 0..255),
-    SHARPEN("Sharpen", "Sh", 0..255),
-    MEDIAN("Median", "Me", 0..255),
-    AVERAGING("Averaging", "Av", 0..255),
-    BLACK_WHITE("Black/White", "BW", 0..255),
-    BRIGHTNESS_HSV("Brightness", "Br", 0..255),
-    EDGE_COLORING("Edge Coloring", "EC", 0..255),
-    SATURATION_HSV("Saturation", "Sa", 0..255),
-    HUE_HSV("Hue", "Hu", 0..255),
+    BINARY("Binary", "Bi", 1..255, 155),
+    CONTRAST("Contrast", "Co", -200..500),
+    SHARPEN("Sharpen", "Sh", 1..15),
+    MEDIAN("Median", "Me", 1..20),
+    AVERAGING("Averaging", "Av", 1..15),
+    BLACK_WHITE("Black/White", "BW", 1..254),
+    BRIGHTNESS_HSV("Brightness", "Br", -210..250),
+    EDGE_COLORING("Edge Coloring", "EC", 0..1, 1),
+    SATURATION_HSV("Saturation", "Sa", -250..250),
+    HUE_HSV("Hue", "Hu", -255..254),
 }
 
 fun IntRange.toFloatRange(): ClosedFloatingPointRange<Float> {
